@@ -1,7 +1,6 @@
-package main
+package gophat
 
 import (
-	"fmt"
 )
 
 type Handle struct {
@@ -76,8 +75,4 @@ func funlock(h Handle) Sequencer {
 
 func delete(h Handle) error {
 	return nil
-}
-
-func main() {
-	fmt.Println("Starting phat instance")
 }
