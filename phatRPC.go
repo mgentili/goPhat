@@ -1,59 +1,32 @@
 package gophat
 
-func (s *Server) Getmaster(args *Null, reply *string) error {
-	help := "here"
-	reply = &help
-	return nil
+import (
+	"phatdb"
+	"errors"
+)
+
+func startDB() {
+	input := make(chan phatdb.DBCommand)
+	go phatdb.DatabaseServer(input)
 }
 
-func (s *Server) Getroot(args *RPCArgs, reply *Handle) error {
-	//cmd := Command{"getroot"}
-	//cmdChan <- cmd
-	//response := <-responseChan
-	
-	return nil
+func (s *Server) GetMaster() string {
+
 }
 
-func (s *Server) Open(args *RPCArgs, reply *Handle) error {
+func (s *Server) RPCDB(args *phatdb.DBCommand, reply *phatdb.Response) error {
+	if !s.isMaster {
+		reply.Error = error.New("Not master")
+		return nil
+	} else {
+		switch args.Command {
+		case "CREATE", "DELETE", "SET":
+			paxos(args)
+		default:
+			input<-args
+			req.Done <- &phatdb.DBResponse{nil, errors.New("Unknown command")}
+		}
+	}
 
-	return nil
-}
-
-func (s *Server) Mkfile(args *RPCArgs, reply *Handle) error {
-	
-	return nil
-}
-
-func (s *Server) Mkdir(args *RPCArgs, reply *Handle) error {
-	return nil
-}
-
-func (s *Server) Getcontents(args *RPCArgs, reply *Handle) error {
-	return nil
-}
-
-func (s *Server) Putcontents(args *RPCArgs, reply *Handle) error {
-	return nil
-}
-
-func (s *Server) Readdir(args *Handle, reply *string) error {
-	return nil
-}
-
-func (s *Server) Stat(args *Handle, reply *Metadata) error {
-
-	return nil
-}
-
-/*func (s *Server) Flock(h Handle, lt LockType, reply *Sequencer) error {
-	return nil
-}*/
-
-func (s *Server) Funlock(args *Handle, reply *Sequencer) error {
-
-	return nil
-}
-
-func (s *Server) Delete(args *Handle, reply *error) error {
 	return nil
 }
