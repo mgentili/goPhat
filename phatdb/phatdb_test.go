@@ -50,7 +50,7 @@ func TestExistsNode(t *testing.T) {
 	root := setup()
 	//
 	path := "/dev/null"
-	if existsNode(root, path) != false {
+	if exists, err := existsNode(root, path); err != nil || exists != false {
 		t.Errorf("Exists thinks files exist when they shouldn't")
 	}
 }
@@ -61,17 +61,17 @@ func TestAddGetDelNode(t *testing.T) {
 	path := "/dev/null"
 	val := "empty"
 	// Create the node
-	n := addNode(root, path, val)
-	if n.Data != val && n.Version == 1 {
+	n, err := createNode(root, path, val)
+	if err != nil || n.Data != val || n.Version != 1 {
 		t.Errorf("Set node failed")
 	}
 	// Update the contents of the node
-	n = addNode(root, path, val)
-	if n, _ := getNode(root, path); n.Data != val && n.Version == 2 {
+	setNode(root, path, val)
+	if n, err := getNode(root, path); err != nil || n.Data != val || n.Version != 2 {
 		t.Errorf("Get and/or set node failed")
 	}
 	// Ensure the node exists
-	if existsNode(root, path) != true {
+	if exists, err := existsNode(root, path); err != nil || exists != true {
 		t.Errorf("Exists reported the wrong result")
 	}
 	// Delete the node
@@ -81,8 +81,7 @@ func TestAddGetDelNode(t *testing.T) {
 	}
 	// Create the node again -- currently we expect the version to be 1 again
 	// TODO: Should this have different behaviour? Is this what you'd expect?
-	n = addNode(root, path, val)
-	if n.Data != val && n.Version == 1 {
+	if n, err = createNode(root, path, val); n.Data != val || n.Version != 1 {
 		t.Errorf("Set node failed")
 	}
 }
@@ -94,7 +93,7 @@ func TestGetChildren(t *testing.T) {
 	// Create the children of /dev/null
 	children := []string{"a", "b", "c", "d", "e"}
 	for _, child := range children {
-		addNode(root, fmt.Sprintf("%s/%s", path, child), child)
+		createNode(root, fmt.Sprintf("%s/%s", path, child), child)
 	}
 	// Ensure all the expected children are there
 	if names, _ := getChildren(root, path); !areEqual(names, children) {
