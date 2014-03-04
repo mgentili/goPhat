@@ -25,21 +25,19 @@ func SplitOnSlash(r rune) bool {
 
 type StatNode struct {
 	Version     uint64 // File version
-	CVersion    uint64 // TODO: Children version
-	NumChildren uint64 // TODO: Number of children
+	CVersion    uint64 // Children version
+	NumChildren uint64 // Number of children
 }
 
 type DataNode struct {
 	Value string
 	Stats *StatNode
-	// Ephemeral identifies creator
 }
 
 type FileNode struct {
 	Parent   *FileNode
 	Children map[string]*FileNode
-	Data     string // Temporary -- replaced with DataNode
-	Version  uint64 // Temporary -- replaced with DataNode.StatNode
+	Data     *DataNode
 }
 
 func GetNodePath(path string) []string {
@@ -60,6 +58,8 @@ func traverseToNode(root *FileNode, parts []string, createMissing bool) (*FileNo
 			temp.Children[part].Parent = temp
 			temp = temp.Children[part]
 			temp.Children = make(map[string]*FileNode)
+			temp.Data = &DataNode{}
+			temp.Data.Stats = &StatNode{}
 		} else {
 			temp = temp.Children[part]
 		}
@@ -67,16 +67,16 @@ func traverseToNode(root *FileNode, parts []string, createMissing bool) (*FileNo
 	return temp, nil
 }
 
-func createNode(root *FileNode, path string, val string) (*FileNode, error) {
+func createNode(root *FileNode, path string, val string) (*DataNode, error) {
 	n, _ := traverseToNode(root, GetNodePath(path), true)
-	if n.Version != 0 {
+	if n.Data.Stats.Version != 0 {
 		return nil, os.ErrExist
 	}
 	_setNode(n, val)
-	return n, nil
+	return n.Data, nil
 }
 
-func deleteNode(root *FileNode, path string) (*FileNode, error) {
+func deleteNode(root *FileNode, path string) (*StatNode, error) {
 	parts := GetNodePath(path)
 	n, err := traverseToNode(root, parts, false)
 	if err != nil {
@@ -84,7 +84,7 @@ func deleteNode(root *FileNode, path string) (*FileNode, error) {
 	}
 	p := n.Parent
 	delete(p.Children, parts[len(parts)-1])
-	return p, nil
+	return n.Data.Stats, nil
 }
 
 func existsNode(root *FileNode, path string) (bool, error) {
@@ -109,21 +109,24 @@ func getChildren(root *FileNode, path string) ([]string, error) {
 	return keys, nil
 }
 
-func getNode(root *FileNode, path string) (*FileNode, error) {
-	return traverseToNode(root, GetNodePath(path), false)
+func getNode(root *FileNode, path string) (*DataNode, error) {
+	n, err := traverseToNode(root, GetNodePath(path), false)
+	if err != nil {
+		return nil, err
+	}
+	return n.Data, err
 }
 
-func setNode(root *FileNode, path string, val string) (*FileNode, error) {
+func setNode(root *FileNode, path string, val string) (*DataNode, error) {
 	n, err := traverseToNode(root, GetNodePath(path), false)
 	if err != nil {
 		return nil, err
 	}
 	_setNode(n, val)
-	return n, nil
+	return n.Data, nil
 }
 
 func _setNode(n *FileNode, val string) {
-	// TODO: Attach this to the DataNode
-	n.Data = val
-	n.Version += 1
+	n.Data.Value = val
+	n.Data.Stats.Version += 1
 }
