@@ -11,7 +11,7 @@ type Command struct {
 //is map the best choice here?
 type Log struct {
 	Commits  map[int]*Command
-	maxIndex int //highest seen index
+	MaxIndex int //highest seen index
 }
 
 //no builtin int max function??
@@ -27,7 +27,7 @@ func (l *Log) commit(index int, command *Command) {
 	//in practice this would not matter, but might be useful
 	//for debugging
 	l.Commits[index] = command
-	l.maxIndex = Max(l.maxIndex, index)
+	l.MaxIndex = Max(l.MaxIndex, index)
 
 }
 

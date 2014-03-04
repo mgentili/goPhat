@@ -38,7 +38,7 @@ func TestGet(t *testing.T) {
 	commitLog := setup()
 	addCommits(commitLog)
 
-	for i := 0; i < commitLog.maxIndex+1; i++ {
+	for i := 0; i < commitLog.MaxIndex+1; i++ {
 		command := commitLog.getCommit(i)
 		t.Log("Key:", i, "Value:", command)
 	}
