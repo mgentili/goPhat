@@ -5,8 +5,13 @@ const (
     NREPLICAS = 2*F // doesn't count the master as a replica
 )
 
+var clients[NREPLICAS]*rpc.Client
+
+var rstate ReplicaState
+var mstate MasterState
+
 type ReplicaState {
-    ViewNumber int
+    View int
     OpNumber int
     CommitNumber int
     ReplicaNumber int
@@ -14,6 +19,7 @@ type ReplicaState {
 
 type MasterState {
     A int
+    // bit vector of what replicas have replied
     Replies uint64
 }
 
@@ -77,14 +83,61 @@ func (rstate *ReplicaState) IsMaster() bool {
     return rstate.View % (NREPLICAS+1) == rstate.ReplicaNumber
 }
 
+func (mstate *MasterState) Reset() {
+    mstate.A = 0
+    mstate.Replies = 0
+}
+
+func masterInit() {
+    j := 0
+    for i := 0; i < NREPLICAS+1; i++ {
+        if i == rstate.ReplicaNumber {
+            continue
+        }
+        c, err := rpc.Dial("tcp", replicaAddress[i])
+        if err != nil {
+            // couldn't connect to some replica, try to just keep going
+            // (could probably handle this better...)
+            fmt.Println(err)
+        }
+        clients[j] = c
+        j++
+    }
+}
+
+func replicaInit() net.Listener {
+    rpc.Register(new(Replica))
+    ln, err := net.Listen("tcp", replicaAddress[rstate.ReplicaNumber])
+    if err != nil {
+        fmt.Println(err)
+        return nil
+    }
+    return ln
+}
+
+// TODO: might not need to do this, e.g. if we handle client and server rpcs all on the same port
+func replicaRun(ln net.Listener) {
+    for {
+        c, err := ln.Accept()
+        if err != nil {
+            continue
+        }
+        rpc.ServeConn(c)
+    }
+}
+
 func goVR(command interface{}) {
     assert(rstate.IsMaster() /*&& holdLease()*/);
+
+    // FIXME: right now we enforce that the last operation has been committed before starting a new one
+    assert(rstate.OpNumber == rstate.CommitNumber);
     
+    mstate.Reset()
     rstate.OpNumber++
     
     phatlog.add(command)
 
-    args := PrepareArgs{ rstate.ViewNumber, command, rstate.OpNumber, rstate.CommitNumber }
+    args := PrepareArgs{ rstate.View, command, rstate.OpNumber, rstate.CommitNumber }
     replyConstructor := func() { return new(PrepareReply) }
     sendAndRecv(NREPLICAS, "Replica.Prepare", args, replyConstructor, func(reply interface{}) bool {
         return handlePrepareOK(reply.(*PrepareReply));
@@ -117,6 +170,7 @@ func handlePrepareOK(reply *PrepareReply) bool {
     rstate.CommitNumber++
 
     args := CommitArgs{ rstate.View, rstate.CommitNumber }
+    // TODO: technically only need to do this when we don't get another request from the client for a while
     go sendAndEnsure(NREPLICAS, "Replica.Commit", args)
 
     return true
