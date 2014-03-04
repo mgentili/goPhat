@@ -19,24 +19,25 @@ func TestDatabaseServer(t *testing.T) {
 	// Create should succeed
 	createCmd := DBCommand{"CREATE", "/dev/null", "empty", make(chan *DBResponse)}
 	input <- createCmd
-	if resp := <-createCmd.Done; (resp.Reply.(*FileNode)).Data != "empty" || resp.Error != nil {
+	if resp := <-createCmd.Done; (resp.Reply.(*DataNode)).Value != "empty" || resp.Error != nil {
 		t.Errorf("CREATE that should work has failed")
 	}
 	// Try to create a file that already exists
 	input <- createCmd
-	if resp := <-createCmd.Done; resp.Reply.(*FileNode) != nil || !os.IsExist(resp.Error) {
+	if resp := <-createCmd.Done; resp.Reply.(*DataNode) != nil || !os.IsExist(resp.Error) {
 		t.Errorf("CREATE has succeeded even though file already exists")
 	}
 	//
 	getCmd := DBCommand{"GET", "/dev/null", "", make(chan *DBResponse)}
 	input <- getCmd
-	if resp := <-getCmd.Done; resp.Reply.(*FileNode).Data != "empty" || resp.Reply.(*FileNode).Version != 1 || resp.Error != nil {
+	if resp := <-getCmd.Done; resp.Reply.(*DataNode).Value != "empty" || resp.Reply.(*DataNode).Stats.Version != 1 || resp.Error != nil {
 		t.Errorf("GET fails")
 	}
 	//
 	setCmd := DBCommand{"SET", "/dev/null", "nullify", make(chan *DBResponse)}
 	input <- setCmd
-	if resp := <-setCmd.Done; resp.Reply.(*FileNode).Data != "nullify" || resp.Reply.(*FileNode).Version != 2 || resp.Error != nil {
+	if resp := <-setCmd.Done; resp.Reply.(*DataNode).Value != "nullify" || resp.Reply.(*DataNode).Stats.Version != 2 || resp.Error != nil {
 		t.Errorf("SET fails")
 	}
+	//
 }

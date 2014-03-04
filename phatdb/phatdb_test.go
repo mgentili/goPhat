@@ -62,12 +62,12 @@ func TestAddGetDelNode(t *testing.T) {
 	val := "empty"
 	// Create the node
 	n, err := createNode(root, path, val)
-	if err != nil || n.Data != val || n.Version != 1 {
+	if err != nil || n.Value != val || n.Stats.Version != 1 {
 		t.Errorf("Set node failed")
 	}
 	// Update the contents of the node
 	setNode(root, path, val)
-	if n, err := getNode(root, path); err != nil || n.Data != val || n.Version != 2 {
+	if n, err := getNode(root, path); err != nil || n.Value != val || n.Stats.Version != 2 {
 		t.Errorf("Get and/or set node failed")
 	}
 	// Ensure the node exists
@@ -81,7 +81,7 @@ func TestAddGetDelNode(t *testing.T) {
 	}
 	// Create the node again -- currently we expect the version to be 1 again
 	// TODO: Should this have different behaviour? Is this what you'd expect?
-	if n, err = createNode(root, path, val); n.Data != val || n.Version != 1 {
+	if n, err = createNode(root, path, val); n.Value != val || n.Stats.Version != 1 {
 		t.Errorf("Set node failed")
 	}
 }
