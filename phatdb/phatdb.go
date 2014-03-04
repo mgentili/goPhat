@@ -24,21 +24,22 @@ func SplitOnSlash(r rune) bool {
 }
 
 type StatNode struct {
-	Version     uint64
-	CVersion    uint64
-	NumChildren uint64
+	Version     uint64 // File version
+	CVersion    uint64 // TODO: Children version
+	NumChildren uint64 // TODO: Number of children
 }
 
 type DataNode struct {
 	Value string
-	Stat  *StatNode
+	Stats *StatNode
 	// Ephemeral identifies creator
 }
 
 type FileNode struct {
 	Parent   *FileNode
 	Children map[string]*FileNode
-	Data     string
+	Data     string // Temporary -- replaced with DataNode
+	Version  uint64 // Temporary -- replaced with DataNode.StatNode
 }
 
 func GetNodePath(path string) []string {
@@ -86,10 +87,23 @@ func existsNode(root *FileNode, path string) bool {
 	return err == nil
 }
 
+func getChildren(root *FileNode, path string) ([]string, error) {
+	n, err := traverseToNode(root, GetNodePath(path), false)
+	if err != nil {
+		return nil, err
+	}
+	var keys []string
+	for k := range n.Children {
+		keys = append(keys, k)
+	}
+	return keys, nil
+}
+
 func getNode(root *FileNode, path string) (*FileNode, error) {
 	return traverseToNode(root, GetNodePath(path), false)
 }
 
 func setNode(n *FileNode, val string) {
 	n.Data = val
+	n.Version += 1
 }
