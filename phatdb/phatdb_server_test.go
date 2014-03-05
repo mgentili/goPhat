@@ -23,7 +23,7 @@ func TestDatabaseServer(t *testing.T) {
 	}
 	// Try to create a file that already exists
 	input <- createCmd
-	if resp := <-createCmd.Done; resp.Error != "" {
+	if resp := <-createCmd.Done; resp.Error == "" {
 		t.Errorf("CREATE has succeeded even though file already exists")
 	}
 	//

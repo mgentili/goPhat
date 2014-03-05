@@ -44,7 +44,6 @@ func DatabaseServer(input chan DBCommandWithChannel) {
 				log.Printf("Create didn't error\n")
 				resp.Reply = n
 			} else {
-				log.Printf("Create errored\n")
 				resp.Error = err.Error()
 			}
 		case "DELETE":
