@@ -1,4 +1,4 @@
-package gophat
+package phatclient
 
 import (
 	"errors"
@@ -94,9 +94,9 @@ func (c *PhatClient) connectToMaster() error {
 }
 
 func (c *PhatClient) Create(subpath string, initialdata string) (*phatdb.DataNode, error) {
-	args := phatdb.DBCommand{"CREATE", subpath, initialdata}
-	var reply phatdb.DBResponse
-	err := c.RpcClient.Call("Server.RPCDB", &args, &reply)
+	args := &phatdb.DBCommand{"CREATE", subpath, initialdata}
+	reply := &phatdb.DBResponse{}
+	err := c.RpcClient.Call("Server.RPCDB", args, reply)
 	log.Printf("Create complete\n")
 	if err != nil {
 		return nil, err
@@ -121,9 +121,9 @@ func (c *PhatClient) GetData(subpath string) (*phatdb.DataNode, error) {
 }
 
 func (c *PhatClient) SetData(subpath string, data string) error {
-	args := phatdb.DBCommand{"SET", subpath, data}
-	var reply phatdb.DBResponse
-	err := c.RpcClient.Call("Server.RPCDB", &args, &reply)
+	args := &phatdb.DBCommand{"SET", subpath, data}
+	reply := &phatdb.DBResponse{}
+	err := c.RpcClient.Call("Server.RPCDB", args, reply)
 	if err != nil {
 		return err
 	}
@@ -131,9 +131,9 @@ func (c *PhatClient) SetData(subpath string, data string) error {
 }
 
 func (c *PhatClient) GetChildren(subpath string) ([]string, error) {
-	args := phatdb.DBCommand{"CHILDREN", subpath, ""}
-	var reply phatdb.DBResponse
-	err := c.RpcClient.Call("Server.RPCDB", &args, &reply)
+	args := &phatdb.DBCommand{"CHILDREN", subpath, ""}
+	reply := &phatdb.DBResponse{}
+	err := c.RpcClient.Call("Server.RPCDB", args, reply)
 	if err != nil {
 		return nil, err
 	}
@@ -141,9 +141,9 @@ func (c *PhatClient) GetChildren(subpath string) ([]string, error) {
 }
 
 func (c *PhatClient) GetStats(subpath string) (*phatdb.StatNode, error) {
-	args := phatdb.DBCommand{"STAT", subpath, ""}
-	var reply phatdb.DBResponse
-	err := c.RpcClient.Call("Server.RPCDB", &args, &reply)
+	args := &phatdb.DBCommand{"STAT", subpath, ""}
+	reply := &phatdb.DBResponse{}
+	err := c.RpcClient.Call("Server.RPCDB", args, reply)
 	if err != nil {
 		return nil, err
 	}
