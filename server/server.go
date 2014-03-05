@@ -18,14 +18,8 @@ func main() {
 		fmt.Printf(err.Error())
 	}
 
-	resp, err := cli.GetData("/dev/null")
+	_, err = cli.GetData("/dev/null")
 	if err != nil {
 		fmt.Printf(err.Error())
 	}
-
-	/*resp, err := cli.Mkfile("/dev/null", "derp")
-	if err != nil {
-		fmt.Printf(err.Error())
-	}*/
-	fmt.Printf(resp.Value)
 }

@@ -1,18 +1,5 @@
 package phatdb
 
-// create
-// close
-// delete
-// exists
-// getACL
-// getChildren
-// getData
-// getSessionId
-// getSessionPassword
-// register(watcher)
-// setACL
-// setData
-
 // TODO: https://groups.google.com/forum/#!topic/golang-nuts/ct99dtK2Jo4
 import (
 	"os"

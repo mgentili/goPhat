@@ -1,7 +1,6 @@
 package gophat
 
 import (
-	"errors"
 	"fmt"
 	"github.com/mgentili/goPhat/phatdb"
 	"log"
@@ -59,7 +58,7 @@ func (s *Server) RPCDB(args *phatdb.DBCommand, reply *phatdb.DBResponse) error {
 	log.Printf("Master id: %d, My id: %d", s.MasterId, s.Id)
 	if s.Id != s.MasterId {
 		log.Println("I'm not the master!")
-		reply.Error = errors.New("Not master node")
+		reply.Error = "Not master node"
 		reply.Reply = s.MasterId
 		return nil
 	} else {

@@ -10,6 +10,13 @@ import (
 
 const DefaultTimeout = time.Duration(100) * time.Millisecond
 
+func StringToError(s string) error {
+	if s == "" {
+		return nil
+	}
+	return errors.New(s)
+}
+
 type PhatClient struct {
 	Cache           map[string]string //all data that client has entered
 	Timeout         time.Duration
@@ -93,23 +100,21 @@ func (c *PhatClient) Create(subpath string, initialdata string) (*phatdb.DataNod
 	if err != nil {
 		return nil, err
 	}
-	return reply.Reply.(*phatdb.DataNode), reply.Error
+	return reply.Reply.(*phatdb.DataNode), StringToError(reply.Error)
 }
 
 func (c *PhatClient) GetData(subpath string) (*phatdb.DataNode, error) {
 	args := &phatdb.DBCommand{"GET", subpath, ""}
 	reply := &phatdb.DBResponse{}
-	log.Printf("Got")
 	err := c.RpcClient.Call("Server.RPCDB", args, reply)
-	log.Printf("Gotten")
 	if err != nil {
 		return nil, err
 	}
-	if reply.Error != nil {
-		return nil, reply.Error
+	replyErr := StringToError(reply.Error)
+	if replyErr != nil {
+		return nil, err
 	}
-	log.Printf("No error")
-	return reply.Reply.(*phatdb.DataNode), reply.Error
+	return reply.Reply.(*phatdb.DataNode), replyErr
 }
 
 func (c *PhatClient) SetData(subpath string, data string) error {
@@ -119,7 +124,7 @@ func (c *PhatClient) SetData(subpath string, data string) error {
 	if err != nil {
 		return err
 	}
-	return reply.Error
+	return StringToError(reply.Error)
 }
 
 func (c *PhatClient) GetChildren(subpath string) ([]string, error) {
@@ -129,7 +134,7 @@ func (c *PhatClient) GetChildren(subpath string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return reply.Reply.([]string), reply.Error
+	return reply.Reply.([]string), StringToError(reply.Error)
 }
 
 func (c *PhatClient) GetStats(subpath string) (*phatdb.StatNode, error) {
@@ -139,5 +144,5 @@ func (c *PhatClient) GetStats(subpath string) (*phatdb.StatNode, error) {
 	if err != nil {
 		return nil, err
 	}
-	return reply.Reply.(*phatdb.StatNode), reply.Error
+	return reply.Reply.(*phatdb.StatNode), StringToError(reply.Error)
 }
