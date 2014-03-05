@@ -141,12 +141,14 @@ func (t *Replica) Prepare(args *PrepareArgs, reply *PrepareReply) error {
 	return nil
 }
 
-func (t *Replica) Commit(args *CommitArgs, reply *int) error {
+func (t *Replica) Commit(args *CommitArgs, reply *uint) error {
 	if args.View != rstate.View {
 		return wrongView()
 	}
 
 	rstate.ExtendLease()
+
+	*reply = rstate.ReplicaNumber
 
 	doCommit(args.CommitNumber)
 
@@ -304,6 +306,8 @@ func handlePrepareOK(reply *PrepareReply) bool {
 		return false
 	}
 
+	mstate.Heartbeat(reply.ReplicaNumber)
+
 	if reply.OpNumber != rstate.OpNumber {
 		return false
 	}
@@ -330,8 +334,8 @@ func handlePrepareOK(reply *PrepareReply) bool {
 	args := CommitArgs{rstate.View, rstate.CommitNumber}
 	// TODO: technically only need to do this when we don't get another request from the client for a while
 	go sendAndRecv(NREPLICAS, "Replica.Commit", args,
-		func() interface{} { return nil },
-		func(r interface{}) bool { return false })
+		func() interface{} { return new(uint) },
+		func(r interface{}) bool { mstate.Heartbeat(*(r.(*uint))); return false })
 
 	return true
 }
@@ -372,6 +376,10 @@ func sendAndRecv(N int, msg string, args interface{}, newReply func() interface{
 			if call.Error != nil {
 				// for now just resend failed messages indefinitely
 				log.Printf("sendAndRecv message error: %v", call.Error)
+				//MAJOR HAX:
+				if call.Error.Error() == "connection is shut down" {
+					break
+				}
 				sendOne(clientCall.client)
 				continue
 			}
