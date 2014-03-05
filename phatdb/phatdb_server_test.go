@@ -6,18 +6,18 @@ import (
 )
 
 func TestDatabaseServer(t *testing.T) {
-	input := make(chan DBCommand)
+	input := make(chan DBCommandWithChannel)
 	go DatabaseServer(input)
 	//
 	// A bad command should fail
-	badCmd := DBCommand{"HAMMERTIME", "", "", make(chan *DBResponse)}
+	badCmd := DBCommandWithChannel{&DBCommand{"HAMMERTIME", "", ""}, make(chan *DBResponse)}
 	input <- badCmd
 	// TODO: Ensure it's the expected error
 	if resp := <-badCmd.Done; resp.Reply != nil || resp.Error == nil {
 		t.Errorf("A bad command returned non-error response")
 	}
 	// Create should succeed
-	createCmd := DBCommand{"CREATE", "/dev/null", "empty", make(chan *DBResponse)}
+	createCmd := DBCommandWithChannel{&DBCommand{"CREATE", "/dev/null", "empty"}, make(chan *DBResponse)}
 	input <- createCmd
 	if resp := <-createCmd.Done; (resp.Reply.(*DataNode)).Value != "empty" || resp.Error != nil {
 		t.Errorf("CREATE that should work has failed")
@@ -28,13 +28,13 @@ func TestDatabaseServer(t *testing.T) {
 		t.Errorf("CREATE has succeeded even though file already exists")
 	}
 	//
-	getCmd := DBCommand{"GET", "/dev/null", "", make(chan *DBResponse)}
+	getCmd := DBCommandWithChannel{&DBCommand{"GET", "/dev/null", ""}, make(chan *DBResponse)}
 	input <- getCmd
 	if resp := <-getCmd.Done; resp.Reply.(*DataNode).Value != "empty" || resp.Reply.(*DataNode).Stats.Version != 1 || resp.Error != nil {
 		t.Errorf("GET fails")
 	}
 	//
-	setCmd := DBCommand{"SET", "/dev/null", "nullify", make(chan *DBResponse)}
+	setCmd := DBCommandWithChannel{&DBCommand{"SET", "/dev/null", "nullify"}, make(chan *DBResponse)}
 	input <- setCmd
 	if resp := <-setCmd.Done; resp.Reply.(*DataNode).Value != "nullify" || resp.Reply.(*DataNode).Stats.Version != 2 || resp.Error != nil {
 		t.Errorf("SET fails")

@@ -15,17 +15,14 @@ type Server struct {
 	Id              int
 	MasterId        int
 	ServerLocations []string
-	InputChan       chan phatdb.DBCommand
-	ResponseChan    chan *phatdb.DBResponse
+	InputChan chan phatdb.DBCommandWithChannel
 }
 
 func (s *Server) startDB() {
 	log.Println("Starting DB")
-	input := make(chan phatdb.DBCommand)
-	response := make(chan *phatdb.DBResponse)
+	input := make(chan phatdb.DBCommandWithChannel)
 	s.InputChan = input
-	s.ResponseChan = response
-	go phatdb.DatabaseServer(input, response)
+	go phatdb.DatabaseServer(input)
 }
 
 //starts a TCP server that accepts at the given port
@@ -66,19 +63,20 @@ func (s *Server) RPCDB(args *phatdb.DBCommand, reply *phatdb.DBResponse) error {
 		reply.Reply = s.MasterId
 		return nil
 	} else {
+		argsWithChannel := phatdb.DBCommandWithChannel{args, make(chan *phatdb.DBResponse)}
 		switch args.Command {
 		//if the command is a write, then we need to go through paxos
 		case "CREATE", "DELETE", "SET":
 			log.Println("Need to send command to paxos")
-			s.InputChan <- *args
-			rep := <-s.ResponseChan
+			s.InputChan <- argsWithChannel
+			rep := <-argsWithChannel.Done
 			*reply = *rep
 			//			paxos(args)
 		//otherwise, we can go directly to the database
 		default:
 			log.Println("Read command")
-			s.InputChan <- *args
-			rep := <-s.ResponseChan
+			s.InputChan <- argsWithChannel
+			rep := <-argsWithChannel.Done
 			*reply = *rep
 		}
 	}
