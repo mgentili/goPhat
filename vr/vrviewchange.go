@@ -108,7 +108,7 @@ func (t *Replica) DoViewChange(args *DoViewChangeArgs, reply *int) error {
 			}
 		}
 
-        rstate.View = DVCArgs[0].View
+		rstate.View = DVCArgs[0].View
 		phatlog = DVCArgs[maxId].Log
 		rstate.OpNumber = tmpOpNumber //I believe this is right
 		rstate.CommitNumber = maxCommit
