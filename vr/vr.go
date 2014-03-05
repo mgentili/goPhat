@@ -278,9 +278,9 @@ func ReplicaRun(ln net.Listener) {
 		if err != nil {
 			continue
 		}
-		rpc.ServeConn(c)
-
 		InterconnectionInit()
+
+		rpc.ServeConn(c)
 	}
 }
 
