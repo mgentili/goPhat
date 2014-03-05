@@ -1,6 +1,7 @@
 package phatclient
 
 import (
+	"encoding/gob"
 	"errors"
 	"github.com/mgentili/goPhat/phatdb"
 	"log"
@@ -34,6 +35,9 @@ type Null struct{}
 // and attempt to connect to the master server
 func NewClient(servers []string, id int) (*PhatClient, error) {
 	c := new(PhatClient)
+    // We need to register the DataNode and StatNode before we can use them in gob
+	gob.Register(phatdb.DataNode{})
+	gob.Register(phatdb.StatNode{})
 	c.ServerLocations = servers
 	c.Id = id
 
@@ -101,7 +105,15 @@ func (c *PhatClient) Create(subpath string, initialdata string) (*phatdb.DataNod
 	if err != nil {
 		return nil, err
 	}
-	return reply.Reply.(*phatdb.DataNode), StringToError(reply.Error)
+	log.Printf("Checking if error on Create\n")
+	replyErr := StringToError(reply.Error)
+	if replyErr != nil {
+		return nil, replyErr
+	}
+	log.Printf("No error on Create\n")
+	log.Println(reply.Reply.(phatdb.DataNode))
+	n := reply.Reply.(phatdb.DataNode)
+	return &n, replyErr
 }
 
 func (c *PhatClient) GetData(subpath string) (*phatdb.DataNode, error) {
@@ -117,7 +129,8 @@ func (c *PhatClient) GetData(subpath string) (*phatdb.DataNode, error) {
 		return nil, replyErr
 	}
 	log.Println("But that's no error!")
-	return reply.Reply.(*phatdb.DataNode), replyErr
+	n := reply.Reply.(phatdb.DataNode)
+	return &n, replyErr
 }
 
 func (c *PhatClient) SetData(subpath string, data string) error {

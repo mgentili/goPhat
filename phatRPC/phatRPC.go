@@ -17,7 +17,7 @@ type Server struct {
 	InputChan       chan phatdb.DBCommandWithChannel
 }
 
-type Null struct {}
+type Null struct{}
 
 func (s *Server) startDB() {
 	log.Println("Starting DB")
@@ -70,15 +70,15 @@ func (s *Server) RPCDB(args *phatdb.DBCommand, reply *phatdb.DBResponse) error {
 		case "CREATE", "DELETE", "SET":
 			log.Println("Need to send command via Paxos")
 			s.InputChan <- argsWithChannel
-			reply = <-argsWithChannel.Done
-			log.Printf("%v, %v\n", reply.Error, reply.Reply.(*phatdb.DataNode).Value)
+			result := <-argsWithChannel.Done
+			*reply = *result
 			log.Println("Finished write-only")
 			//paxos(args)
 		default:
 			log.Println("Read-only command skips Paxos")
 			s.InputChan <- argsWithChannel
-			rep := <-argsWithChannel.Done
-			*reply = *rep
+			result := <-argsWithChannel.Done
+			*reply = *result
 			log.Println("Finished read-only")
 		}
 	}

@@ -43,7 +43,6 @@ func DatabaseServer(input chan DBCommandWithChannel) {
 			if err == nil {
 				log.Printf("Create didn't error\n")
 				resp.Reply = n
-				resp.Error = "Hello world"
 			} else {
 				log.Printf("Create errored\n")
 				resp.Error = err.Error()
