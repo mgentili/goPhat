@@ -1,8 +1,11 @@
 package vr
 
 import (
-    "rpc"
+    "net/rpc"
     "net"
+    "errors"
+    "log"
+    "fmt"
 )
 
 const (
@@ -10,16 +13,30 @@ const (
     NREPLICAS = 2*F // doesn't count the master as a replica
 )
 
+var replicaAddress = []string{"127.0.0.1:9000", "127.0.0.1:9001", "127.0.0.1:9002"}
+
 var clients[NREPLICAS]*rpc.Client
 
 var rstate ReplicaState
 var mstate MasterState
 
+// a replica's possible states
+const (
+    Normal = iota
+    Recovery
+    ViewChange
+)
+
+type Command string
+
+var phatlog []string
+
 type ReplicaState struct {
-    View int
-    OpNumber int
-    CommitNumber int
-    ReplicaNumber int
+    View uint
+    OpNumber uint
+    CommitNumber uint
+    ReplicaNumber uint
+    Status int
 }
 
 type MasterState struct {
@@ -29,42 +46,65 @@ type MasterState struct {
 }
 
 type PrepareArgs struct {
-    View int
+    View uint
     Command interface{}
-    OpNumber int
-    CommitNumber int
+    OpNumber uint
+    CommitNumber uint
 }
 
 type PrepareReply struct {
-    View int
-    OpNumber int
-    ReplicaNumber int
+    View uint
+    OpNumber uint
+    ReplicaNumber uint
 }
 
 type CommitArgs struct {
-    View int
-    CommitNumber int
+    View uint
+    CommitNumber uint
+}
+
+func assert(b bool) {
+    if !b {
+        log.Fatal("assertion failed")
+    }
 }
 
 func wrongView() error {
-    return os.NewError("view numbers don't match")
+    return errors.New("view numbers don't match")
 }
 
 func addLog(command interface{}) {
-    phatlog.add(command)
+    phatlog = append(phatlog, command.(string))
+//    phatlog.add(command)
+}
+
+func doCommit(cn uint) {
+    if cn <= rstate.CommitNumber {
+        return
+    } else if cn > rstate.CommitNumber+1 {
+        log.Printf("Commits are ahead of us\n")
+    }
+//    rstate.Commit()
+    log.Printf("'commiting'")
+    rstate.CommitNumber++
 }
 
 // RPCs
 type Replica struct{}
 
 func (t *Replica) Prepare(args *PrepareArgs, reply *PrepareReply) error {
+    if rstate.Status != Normal {
+        // TODO: ideally we should just not respond or something in this case
+        return errors.New("not in normal mode")
+    }
+
     if args.View != rstate.View {
         return wrongView()
     }
 
     if args.OpNumber != rstate.OpNumber-1 {
         // TODO: we should probably sleep or something til this is true??
-        return os.NewError("op numbers out of sync")
+        return errors.New("op numbers out of sync")
     }
 
     rstate.OpNumber++
@@ -82,8 +122,7 @@ func (t *Replica) Commit(args *CommitArgs, reply *int) error {
         return wrongView()
     }
 
-    rstate.Commit()
-    rstate.CommitNumber++
+    doCommit(args.CommitNumber)
     
     return nil
 }
@@ -99,7 +138,8 @@ func (mstate *MasterState) Reset() {
 
 func masterInit() {
     j := 0
-    for i := 0; i < NREPLICAS+1; i++ {
+    var i uint = 0
+    for ; i < NREPLICAS+1; i++ {
         if i == rstate.ReplicaNumber {
             continue
         }
@@ -147,7 +187,7 @@ func goVR(command interface{}) {
     addLog(command)
 
     args := PrepareArgs{ rstate.View, command, rstate.OpNumber, rstate.CommitNumber }
-    replyConstructor := func() { return new(PrepareReply) }
+    replyConstructor := func() interface{} { return new(PrepareReply) }
     sendAndRecv(NREPLICAS, "Replica.Prepare", args, replyConstructor, func(reply interface{}) bool {
         return handlePrepareOK(reply.(*PrepareReply));
     });
@@ -162,7 +202,7 @@ func handlePrepareOK(reply *PrepareReply) bool {
         return false
     }
 
-    if (1 << reply.ReplicaNumber) & mstate.Replies {
+    if ((1 << reply.ReplicaNumber) & mstate.Replies) != 0 {
         return false
     }
 
@@ -175,8 +215,7 @@ func handlePrepareOK(reply *PrepareReply) bool {
     }
 
     // we've now gotten a majority
-    rstate.Commit()
-    rstate.CommitNumber++
+    doCommit(rstate.CommitNumber)
 
     args := CommitArgs{ rstate.View, rstate.CommitNumber }
     // TODO: technically only need to do this when we don't get another request from the client for a while
