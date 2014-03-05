@@ -10,8 +10,17 @@ for DoViewChange.
 
 */
 
-//Need a slice of DoViewChange args (somewhere)
-var DVCArgs []DoViewChangeArgs
+//dummy init state
+var newMasterArgs = NewMasterArgs{0, 0, phatlog, 0, 0}
+
+type NewMasterArgs struct {
+    View uint
+    MaxNormalView uint
+    Log           []string
+	OpNumber      uint
+	CommitNumber  uint
+
+}
 
 type StartViewChangeArgs struct {
 	View          uint
@@ -29,9 +38,9 @@ type DoViewChangeArgs struct {
 
 type StartViewArgs struct {
 	View         uint
-	OpNumber     uint
 	Log          []string
-	CommitNumber uint
+	OpNumber     uint
+    CommitNumber uint
 }
 
 //A replica notices that a viewchange is needed - starts off the messages
@@ -41,7 +50,7 @@ func PrepareViewChange() {
 
 	args := StartViewChangeArgs{rstate.View, rstate.ReplicaNumber}
 
-	sendAndRecv(NREPLICAS, "Replica.StartViewChange", args,
+	go sendAndRecv(NREPLICAS, "Replica.StartViewChange", args,
 		func() interface{} { return nil },
 		func(r interface{}) bool { return false })
 
@@ -49,81 +58,60 @@ func PrepareViewChange() {
 
 //viewchange RPCs
 func (t *Replica) StartViewChange(args *StartViewChangeArgs, reply *int) error {
-	//This view is already ahead of the proposed one
-	if r.View > args.View {
+	//This view is already ahead of the proposed one or we already are in viewchange
+	if rstate.View > args.View || rstate.Status == ViewChange {
 		return nil
 	}
 
-	if r.View < args.View {
+	if rstate.View < args.View {
 		rstate.NormalView = rstate.View //last known normal View
 		rstate.View = args.View
 		rstate.Status = ViewChange
 	}
 
-	rstate.ViewChangeMsgs++ //when this equals NREPLICAS we send DoViewChange
+    SVCargs := StartViewChangeArgs{rstate.View, rstate.ReplicaNumber}
 
 	//send StartViewChange messages to all replicas
-	sendAndRecv(NREPLICAS, "Replica.StartViewChange", args,
+	go sendAndRecv(NREPLICAS, "Replica.StartViewChange", SVCargs,
 		func() interface{} { return nil },
 		func(r interface{}) bool { return false })
 
-	//We have a majority for StartViewChange msgs -- send DoViewChange to
 	//new master -- rstate.View % NREPLICAS+1 is assumed the master..
-	if rstate.ViewChangeMsgs == F {
-		args := DoViewChangeArgs{rstate.View, rstate.ReplicaNumber, phatlog, rstate.NormalView, rstate.OpNumber, rstate.CommitNumber}
+	DVCargs := DoViewChangeArgs{rstate.View, rstate.ReplicaNumber, phatlog, rstate.NormalView, rstate.OpNumber, rstate.CommitNumber}
 
-		//TODO:Verify this line is right!!
-		call := clients[rstate.View%(NREPLICAS+1)].Go("Replica.DoViewChange", args, interface{})
-
-	}
+	//TODO:Verify this line is right!!
+	clients[rstate.View%(NREPLICAS+1)].Call("Replica.DoViewChange", DVCargs, nil)
 
 	return nil
 }
 
 func (t *Replica) DoViewChange(args *DoViewChangeArgs, reply *int) error {
 	mstate.ViewChangeMsgs++ //recieved a DoViewChange message
-	DVCArgs = DVCArgs.append(DVCArgs, args)
 
+    newMasterArgs.View = args.View
+    if args.NormalView > newMasterArgs.MaxNormalView || (args.NormalView == newMasterArgs.MaxNormalView && args.OpNumber > newMasterArgs.OpNumber){
+        newMasterArgs.MaxNormalView = args.NormalView
+        newMasterArgs.Log = args.Log
+        newMasterArgs.OpNumber = args.OpNumber
+    }
+
+   if args.CommitNumber > newMasterArgs.CommitNumber {
+        newMasterArgs.CommitNumber = args.CommitNumber
+   }
 	//We have recived enough DoViewChange messages
 	if mstate.ViewChangeMsgs == F+1 {
-		var maxNormalView uint = 0
-		var maxId uint = 0
-		var tmpOpNumber uint = 0
-		var maxCommit uint = 0
-
-		//finds optimal log
-		for i = 0; i < len(DVCArgs); i++ {
-			if DVCArgs[i].NormalView > maxNormalView {
-				maxNormalView = DVCArgs[i].NormalView
-				maxId = i
-				tmpOpNumber = DVCArgs[i].OpNumber
-			} else if DVCArgs[i].NormalView == maxNormalView {
-				if DVCArgs[i].OpNumber > tmpOpNumber {
-					maxId = i
-					tmpOpNumber = DVCArgs[i].OpNumber
-				}
-			}
-		}
-
-		//finds largest commit number
-		for i = 0; i < len(DVCArgs); i++ {
-			if DVCArgs[i].CommitNumber > maxCommit {
-				maxCommit = DVCArgs[i].CommitNumber
-			}
-		}
-
-		rstate.View = DVCArgs[0].View
-		phatlog = DVCArgs[maxId].Log
-		rstate.OpNumber = tmpOpNumber //I believe this is right
-		rstate.CommitNumber = maxCommit
+        rstate.View = newMasterArgs.View
+		phatlog = newMasterArgs.Log
+		rstate.OpNumber = newMasterArgs.OpNumber
+		rstate.CommitNumber = newMasterArgs.CommitNumber
 
 		//send the StartView messages to all replicas
-		args := StartViewArgs{rstate.View, phatlog, rstate.OpNumber, rstate.CommitNumber}
-		sendAndRecv(NREPLICAS, "Replica.StartView", args,
+		SVargs := StartViewArgs{rstate.View, phatlog, rstate.OpNumber, rstate.CommitNumber}
+		sendAndRecv(NREPLICAS, "Replica.StartView", SVargs,
 			func() interface{} { return nil },
 			func(r interface{}) bool { return false })
 
-		mstate.ViewChangeMsgs = 0 //I think this is safe
+		mstate.ViewChangeMsgs = 0
 	}
 	return nil
 }
@@ -132,7 +120,6 @@ func (t *Replica) StartView(args *DoViewChangeArgs, reply *int) error {
 	phatlog = args.Log
 	rstate.OpNumber = args.OpNumber
 	rstate.CommitNumber = args.CommitNumber
-	rstate.ViewChangeMsgs = 0 //I think this is safe to do here
 
 	return nil
 }
