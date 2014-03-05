@@ -82,8 +82,6 @@ func (t *Replica) DoViewChange(args *DoViewChangeArgs, reply *int) error {
 
 	//We have recived enough DoViewChange messages
 	if mstate.ViewChangeMsgs == F+1 {
-		rstate.View = DVCArgs[0].View
-
 		var maxNormalView uint = 0
 		var maxId uint = 0
 		var tmpOpNumber uint = 0
@@ -110,6 +108,7 @@ func (t *Replica) DoViewChange(args *DoViewChangeArgs, reply *int) error {
 			}
 		}
 
+        rstate.View = DVCArgs[0].View
 		phatlog = DVCArgs[maxId].Log
 		rstate.OpNumber = tmpOpNumber //I believe this is right
 		rstate.CommitNumber = maxCommit
