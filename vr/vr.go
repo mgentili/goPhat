@@ -39,6 +39,7 @@ type ReplicaState struct {
 	ReplicaNumber uint
 	Status        int
 	NormalView    uint
+    ViewChangeMsgs uint
 	Timer         *time.Timer
 	// list of replica addresses, in sorted order
 	Config []string
@@ -160,6 +161,7 @@ func (rstate *ReplicaState) IsMaster() bool {
 func (mstate *MasterState) Reset() {
 	mstate.A = 0
 	mstate.Replies = 0
+    mstate.ViewChangeMsgs = 0
 }
 
 func (m *MasterState) ExtendNeedsRenewal() {
