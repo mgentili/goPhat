@@ -41,6 +41,9 @@ func PrepareViewChange() {
 	rstate.Status = ViewChange
 	rstate.View++
 
+	args := StartViewChangeArgs{rstate.View, rstate.ReplicaNumber}
+	replyConstructor := func() { return new(EmptyReply) }
+
 	//send StartViewChanges to all replicas
 	//Confused by the syntax, basically we do not care about return value
 	sendAndRecv(NREPLICAS, "Replica.StartViewChange", args, replyConstructor, func(reply interface{}) bool {
@@ -51,10 +54,6 @@ func PrepareViewChange() {
 
 //viewchange RPCs
 func (t *Replica) StartViewChange(args *StartViewChangeArgs, reply *EmptyReply) error {
-	if args.View <= rstate.View {
-		return os.NewError("Replica already at same or newer view")
-	}
-
 	rstate.View = args.View
 	rstate.Status = ViewChange
 	rstate.ViewChangeMsgs++ //when this equals NREPLICAS we send DoViewChange
