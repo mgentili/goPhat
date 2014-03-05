@@ -1,7 +1,13 @@
 package vr
 
 /*
-Do not like the global DoViewChangeArgs slice right below
+Current gaps in this code:
+-I use rstate.ViewChangeMsgs and mstate.ViewChangeMsgs but they are not defind
+and maybe shoud exist elsewhere. The replica ViewChangeMsgs determines how many
+StartViewChange msgs we have recied. The master ViewChangeMsgs does the same but
+for DoViewChange.
+-Also have rstate.NormalView which is the last know normal view
+
 */
 
 //Need a slice of DoViewChange args (somewhere)
@@ -16,7 +22,7 @@ type DoViewChangeArgs struct {
 	View          uint
 	ReplicaNumber uint
 	Log           []string
-	NormalView    uint //last time the view was "normal"
+	NormalView    uint
 	OpNumber      uint
 	CommitNumber  uint
 }
@@ -49,6 +55,7 @@ func (t *Replica) StartViewChange(args *StartViewChangeArgs, reply *int) error {
 	}
 
 	if r.View < args.View {
+        rstate.NormalView = rstate.View //last known normal View
 		rstate.View = args.View
 		rstate.Status = ViewChange
 	}
@@ -65,7 +72,7 @@ func (t *Replica) StartViewChange(args *StartViewChangeArgs, reply *int) error {
 	//We have a majority for StartViewChange msgs -- send DoViewChange to
 	//new master -- rstate.View % NREPLICAS+1 is assumed the master..
 	if rstate.ViewChangeMsgs == F {
-		args := DoViewChangeArgs{rstate.View, rstate.ReplicaNumber, phatlog, rstate.View, rstate.OpNumber, rstate.CommitNumber}
+		args := DoViewChangeArgs{rstate.View, rstate.ReplicaNumber, phatlog, rstate.NormalView, rstate.OpNumber, rstate.CommitNumber}
 		replyConstructor := func() { return new(EmptyReply) }
 
 		//TODO:Verify this line is right!!
@@ -113,10 +120,13 @@ func (t *Replica) DoViewChange(args *DoViewChangeArgs, reply *int) error {
 		rstate.OpNumber = tmpOpNumber //I believe this is right
 		rstate.CommitNumber = maxCommit
 
+        //send the StartView messages to all replicas
 		args := StartViewArgs{rstate.View, phatlog, rstate.OpNumber, rstate.CommitNumber}
 		sendAndRecv(NREPLICAS, "Replica.StartView", args,
 			func() interface{} { return nil },
 			func(r interface{}) bool { return false })
+
+        mstate.ViewChangeMsgs = 0 //I think this is safe
 	}
 	return nil
 }
@@ -125,6 +135,7 @@ func (t *Replica) StartView(args *DoViewChangeArgs, reply *int) error {
 	phatlog = args.Log
 	rstate.OpNumber = args.OpNumber
 	rstate.CommitNumber = args.CommitNumber
+    rstate.ViewChangeMsgs = 0 //I think this is safe to do here
 
 	return nil
 }
