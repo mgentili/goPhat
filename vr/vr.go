@@ -378,7 +378,7 @@ func sendAndRecv(N int, msg string, args interface{}, newReply func() interface{
 				log.Printf("sendAndRecv message error: %v", call.Error)
 				//MAJOR HAX:
 				if call.Error.Error() == "connection is shut down" {
-					break
+					continue
 				}
 				sendOne(clientCall.client)
 				continue
