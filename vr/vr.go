@@ -378,7 +378,7 @@ func sendAndRecv(N int, msg string, args interface{}, newReply func() interface{
 			if call.Error != nil {
 				// for now just resend failed messages indefinitely
 				log.Printf("sendAndRecv message error: %v", call.Error)
-				//MAJOR HAX:
+				//TEMP:
 				if call.Error.Error() == "connection is shut down" {
 					continue
 				}
