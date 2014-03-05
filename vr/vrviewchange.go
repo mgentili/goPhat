@@ -34,6 +34,8 @@ type StartViewArgs struct {
 
 //A replica notices that a viewchange is needed - starts off the messages
 func PrepareViewChange() {
+	log.Printf("Replica %d preparing a View Change\n", rstate.ReplicaNumber)
+
 	rstate.Status = ViewChange
 	rstate.View++
 
@@ -47,6 +49,8 @@ func PrepareViewChange() {
 
 //viewchange RPCs
 func (t *Replica) StartViewChange(args *StartViewChangeArgs, reply *int) error {
+	log.Printf("Replica %d got StartViewChange\n", rstate.ReplicaNumber)
+
 	//This view is already ahead of the proposed one or we already are in viewchange
 	if rstate.View > args.View || rstate.Status == ViewChange {
 		return nil
@@ -65,16 +69,20 @@ func (t *Replica) StartViewChange(args *StartViewChangeArgs, reply *int) error {
 		func() interface{} { return nil },
 		func(r interface{}) bool { return false })
 
+	log.Printf("Replica %d sent DoViewChange to %d\n", rstate.ReplicaNumber, rstate.View%(NREPLICAS+1))
+
 	//new master -- rstate.View % NREPLICAS+1 is assumed the master..
 	DVCargs := DoViewChangeArgs{rstate.View, rstate.ReplicaNumber, phatlog, rstate.NormalView, rstate.OpNumber, rstate.CommitNumber}
 
 	//TODO:Verify this line is right!!
-	clients[rstate.View%(NREPLICAS+1)].Call("Replica.DoViewChange", DVCargs, nil)
+	clients[rstate.View%(NREPLICAS+1)].Go("Replica.DoViewChange", DVCargs, nil, nil)
 
 	return nil
 }
 
 func (t *Replica) DoViewChange(args *DoViewChangeArgs, reply *int) error {
+	log.Printf("Replica %d got DoViewChange from %d\n", rstate.ReplicaNumber, args.ReplicaNumber)
+
 	mstate.ViewChangeMsgs++ //recieved a DoViewChange message
 
 	newMasterArgs.View = args.View
@@ -96,7 +104,7 @@ func (t *Replica) DoViewChange(args *DoViewChangeArgs, reply *int) error {
 
 		//send the StartView messages to all replicas
 		SVargs := StartViewArgs{rstate.View, phatlog, rstate.OpNumber, rstate.CommitNumber}
-		sendAndRecv(NREPLICAS, "Replica.StartView", SVargs,
+		go sendAndRecv(NREPLICAS, "Replica.StartView", SVargs,
 			func() interface{} { return nil },
 			func(r interface{}) bool { return false })
 
