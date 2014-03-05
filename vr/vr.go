@@ -1,5 +1,10 @@
 package vr
 
+import (
+    "rpc"
+    "net"
+)
+
 const (
     F = 1
     NREPLICAS = 2*F // doesn't count the master as a replica
@@ -10,14 +15,14 @@ var clients[NREPLICAS]*rpc.Client
 var rstate ReplicaState
 var mstate MasterState
 
-type ReplicaState {
+type ReplicaState struct {
     View int
     OpNumber int
     CommitNumber int
     ReplicaNumber int
 }
 
-type MasterState {
+type MasterState struct {
     A int
     // bit vector of what replicas have replied
     Replies uint64
@@ -41,12 +46,16 @@ type CommitArgs struct {
     CommitNumber int
 }
 
-// RPCs
-type Replica struct{}
-
 func wrongView() error {
     return os.NewError("view numbers don't match")
 }
+
+func addLog(command interface{}) {
+    phatlog.add(command)
+}
+
+// RPCs
+type Replica struct{}
 
 func (t *Replica) Prepare(args *PrepareArgs, reply *PrepareReply) error {
     if args.View != rstate.View {
@@ -59,7 +68,7 @@ func (t *Replica) Prepare(args *PrepareArgs, reply *PrepareReply) error {
     }
 
     rstate.OpNumber++
-    phatlog.add(args.Command)
+    addLog(args.Command)
 
     reply.View = rstate.View
     reply.OpNumber = rstate.OpNumber
@@ -133,9 +142,9 @@ func goVR(command interface{}) {
     assert(rstate.OpNumber == rstate.CommitNumber);
     
     mstate.Reset()
+
     rstate.OpNumber++
-    
-    phatlog.add(command)
+    addLog(command)
 
     args := PrepareArgs{ rstate.View, command, rstate.OpNumber, rstate.CommitNumber }
     replyConstructor := func() { return new(PrepareReply) }
@@ -162,7 +171,7 @@ func handlePrepareOK(reply *PrepareReply) bool {
 
     // we've implicitly gotten a response from ourself already
     if mstate.A != F {
-        return mstate.A >= F+1
+        return mstate.A >= F
     }
 
     // we've now gotten a majority
@@ -171,42 +180,50 @@ func handlePrepareOK(reply *PrepareReply) bool {
 
     args := CommitArgs{ rstate.View, rstate.CommitNumber }
     // TODO: technically only need to do this when we don't get another request from the client for a while
-    go sendAndEnsure(NREPLICAS, "Replica.Commit", args)
+    go sendAndRecv(NREPLICAS, "Replica.Commit", args, 
+    func() interface{} { return nil },
+    func(r interface{}) bool { return false })
 
     return true
 }
 
-func sendAndEnsure(N int, msg string, args interface{}) {
-    var calls []*rpc.Call
-    for i := 0; i < N; i++ {
-        call := clients[i].Go(msg, args, nil, nil)
-        calls = append(calls, call)
-    }
-
-    for {
-        <-call.Done
-        if call.Error != nil {
-            log.Printf("sendAndEnsure message error")
-        }
-    }
-}
-
 func sendAndRecv(N int, msg string, args interface{}, newReply func()(interface{}), handler func(reply interface{})(bool)) {
-    var calls []*rpc.Call
-    for i := 0; i < N; i++ {
-        call := clients[i].Go(msg, args, newReply(), nil)
-        calls = append(calls, call)
+
+    type ClientCall struct {
+        call *rpc.Call
+        // need to track which client so we can resend as needed
+        client *rpc.Client
     }
 
-    for _, call := range calls {
-        <-call.Done
+    callChan := make(chan ClientCall)
+
+    sendOne := func(client *rpc.Client) {
+        call := client.Go(msg, args, newReply(), nil)
+        go func(c ClientCall) {
+            // wait for this call to complete
+            <-c.call.Done
+            // and now send it to the master channel
+            callChan <- c
+        }(ClientCall{call, client})
+    }
+
+    for i := 0; i < N; i++ {
+        sendOne(clients[i])
+    }
+
+    for i := 0; i < N; {
+        clientCall := <-callChan
+        call := clientCall.call
         if call.Error != nil {
-            // TODO: it's possible for a majority of messages to fail and then we need to retry them
-            log.Fatal("sendAndRecv message error")
+            // for now just resend failed messages indefinitely
+            log.Println("sendAndRecv message error")
+            sendOne(clientCall.client)
+            continue
         }
         if handler(call.Reply) {
             break
+        }
+
+        i++
     }
-
-
 }
