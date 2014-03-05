@@ -1,7 +1,6 @@
-package gophat
+package phatRPC
 
 import (
-	"errors"
 	"fmt"
 	"github.com/mgentili/goPhat/phatdb"
 	"log"
@@ -17,6 +16,8 @@ type Server struct {
 	ServerLocations []string
 	InputChan       chan phatdb.DBCommandWithChannel
 }
+
+type Null struct{}
 
 func (s *Server) startDB() {
 	log.Println("Starting DB")
@@ -59,7 +60,7 @@ func (s *Server) RPCDB(args *phatdb.DBCommand, reply *phatdb.DBResponse) error {
 	log.Printf("Master id: %d, My id: %d", s.MasterId, s.Id)
 	if s.Id != s.MasterId {
 		log.Println("I'm not the master!")
-		reply.Error = errors.New("Not master node")
+		reply.Error = "Not master node"
 		reply.Reply = s.MasterId
 		return nil
 	} else {
@@ -69,14 +70,15 @@ func (s *Server) RPCDB(args *phatdb.DBCommand, reply *phatdb.DBResponse) error {
 		case "CREATE", "DELETE", "SET":
 			log.Println("Need to send command via Paxos")
 			s.InputChan <- argsWithChannel
-			rep := <-argsWithChannel.Done
-			*reply = *rep
+			result := <-argsWithChannel.Done
+			*reply = *result
+			log.Println("Finished write-only")
 			//paxos(args)
 		default:
 			log.Println("Read-only command skips Paxos")
 			s.InputChan <- argsWithChannel
-			rep := <-argsWithChannel.Done
-			*reply = *rep
+			result := <-argsWithChannel.Done
+			*reply = *result
 			log.Println("Finished read-only")
 		}
 	}

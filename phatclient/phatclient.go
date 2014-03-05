@@ -1,6 +1,7 @@
-package gophat
+package phatclient
 
 import (
+	"encoding/gob"
 	"errors"
 	"github.com/mgentili/goPhat/phatdb"
 	"log"
@@ -9,6 +10,14 @@ import (
 )
 
 const DefaultTimeout = time.Duration(100) * time.Millisecond
+
+func StringToError(s string) error {
+	log.Println("Convert to err:", s)
+	if s == "" {
+		return nil
+	}
+	return errors.New(s)
+}
 
 type PhatClient struct {
 	Cache           map[string]string //all data that client has entered
@@ -26,6 +35,9 @@ type Null struct{}
 // and attempt to connect to the master server
 func NewClient(servers []string, id int) (*PhatClient, error) {
 	c := new(PhatClient)
+    // We need to register the DataNode and StatNode before we can use them in gob
+	gob.Register(phatdb.DataNode{})
+	gob.Register(phatdb.StatNode{})
 	c.ServerLocations = servers
 	c.Id = id
 
@@ -86,58 +98,67 @@ func (c *PhatClient) connectToMaster() error {
 }
 
 func (c *PhatClient) Create(subpath string, initialdata string) (*phatdb.DataNode, error) {
-	args := phatdb.DBCommand{"CREATE", subpath, initialdata}
-	var reply phatdb.DBResponse
-	err := c.RpcClient.Call("Server.RPCDB", &args, &reply)
+	args := &phatdb.DBCommand{"CREATE", subpath, initialdata}
+	reply := &phatdb.DBResponse{}
+	err := c.RpcClient.Call("Server.RPCDB", args, reply)
 	log.Printf("Create complete\n")
 	if err != nil {
 		return nil, err
 	}
-	return reply.Reply.(*phatdb.DataNode), reply.Error
+	log.Printf("Checking if error on Create\n")
+	replyErr := StringToError(reply.Error)
+	if replyErr != nil {
+		return nil, replyErr
+	}
+	log.Printf("No error on Create\n")
+	log.Println(reply.Reply.(phatdb.DataNode))
+	n := reply.Reply.(phatdb.DataNode)
+	return &n, replyErr
 }
 
 func (c *PhatClient) GetData(subpath string) (*phatdb.DataNode, error) {
 	args := &phatdb.DBCommand{"GET", subpath, ""}
 	reply := &phatdb.DBResponse{}
-	log.Printf("Got")
 	err := c.RpcClient.Call("Server.RPCDB", args, reply)
-	log.Printf("Gotten")
 	if err != nil {
 		return nil, err
 	}
-	if reply.Error != nil {
-		return nil, reply.Error
+	replyErr := StringToError(reply.Error)
+	log.Printf("RPC contains error: %s\n", replyErr)
+	if replyErr != nil {
+		return nil, replyErr
 	}
-	log.Printf("No error")
-	return reply.Reply.(*phatdb.DataNode), reply.Error
+	log.Println("But that's no error!")
+	n := reply.Reply.(phatdb.DataNode)
+	return &n, replyErr
 }
 
 func (c *PhatClient) SetData(subpath string, data string) error {
-	args := phatdb.DBCommand{"SET", subpath, data}
-	var reply phatdb.DBResponse
-	err := c.RpcClient.Call("Server.RPCDB", &args, &reply)
+	args := &phatdb.DBCommand{"SET", subpath, data}
+	reply := &phatdb.DBResponse{}
+	err := c.RpcClient.Call("Server.RPCDB", args, reply)
 	if err != nil {
 		return err
 	}
-	return reply.Error
+	return StringToError(reply.Error)
 }
 
 func (c *PhatClient) GetChildren(subpath string) ([]string, error) {
-	args := phatdb.DBCommand{"CHILDREN", subpath, ""}
-	var reply phatdb.DBResponse
-	err := c.RpcClient.Call("Server.RPCDB", &args, &reply)
+	args := &phatdb.DBCommand{"CHILDREN", subpath, ""}
+	reply := &phatdb.DBResponse{}
+	err := c.RpcClient.Call("Server.RPCDB", args, reply)
 	if err != nil {
 		return nil, err
 	}
-	return reply.Reply.([]string), reply.Error
+	return reply.Reply.([]string), StringToError(reply.Error)
 }
 
 func (c *PhatClient) GetStats(subpath string) (*phatdb.StatNode, error) {
-	args := phatdb.DBCommand{"STAT", subpath, ""}
-	var reply phatdb.DBResponse
-	err := c.RpcClient.Call("Server.RPCDB", &args, &reply)
+	args := &phatdb.DBCommand{"STAT", subpath, ""}
+	reply := &phatdb.DBResponse{}
+	err := c.RpcClient.Call("Server.RPCDB", args, reply)
 	if err != nil {
 		return nil, err
 	}
-	return reply.Reply.(*phatdb.StatNode), reply.Error
+	return reply.Reply.(*phatdb.StatNode), StringToError(reply.Error)
 }

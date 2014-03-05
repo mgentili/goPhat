@@ -1,7 +1,6 @@
 package phatdb
 
 import (
-	"errors"
 	"log"
 )
 
@@ -13,7 +12,7 @@ type DBCommand struct {
 
 type DBResponse struct {
 	Reply interface{}
-	Error error
+	Error string
 }
 
 type DBCommandWithChannel struct {
@@ -34,38 +33,50 @@ func DatabaseServer(input chan DBCommandWithChannel) {
 		switch req.Command {
 		case "CHILDREN":
 			kids, err := getChildren(root, req.Path)
-			if resp.Error = err; err == nil {
+			if err == nil {
 				resp.Reply = kids
+			} else {
+				resp.Error = err.Error()
 			}
 		case "CREATE":
 			n, err := createNode(root, req.Path, req.Value)
-			if resp.Error = err; err == nil {
+			if err == nil {
+				log.Printf("Create didn't error\n")
 				resp.Reply = n
+			} else {
+				log.Printf("Create errored\n")
+				resp.Error = err.Error()
 			}
 		case "DELETE":
 			n, err := deleteNode(root, req.Path)
-			if resp.Error = err; err == nil {
+			if err == nil {
 				resp.Reply = n
+			} else {
+				resp.Error = err.Error()
 			}
 		case "EXISTS":
 			n, err := existsNode(root, req.Path)
-			if resp.Error = err; err == nil {
+			if err == nil {
 				resp.Reply = n
+			} else {
+				resp.Error = err.Error()
 			}
 		case "GET":
 			n, err := getNode(root, req.Path)
-			log.Println(err)
-			if resp.Error = err; err == nil {
+			if err == nil {
 				resp.Reply = n
+			} else {
+				resp.Error = err.Error()
 			}
 		case "SET":
 			n, err := setNode(root, req.Path, req.Value)
-			if resp.Error = err; err == nil {
+			if err == nil {
 				resp.Reply = n
+			} else {
+				resp.Error = err.Error()
 			}
 		default:
-			err := errors.New("Unknown command")
-			resp.Error = err
+			resp.Error = "Unknown command"
 		}
 		request.Done <- resp
 	}
