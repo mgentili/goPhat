@@ -11,6 +11,7 @@ import (
 const DefaultTimeout = time.Duration(100) * time.Millisecond
 
 func StringToError(s string) error {
+	log.Println("Convert to err:", s)
 	if s == "" {
 		return nil
 	}
@@ -111,9 +112,11 @@ func (c *PhatClient) GetData(subpath string) (*phatdb.DataNode, error) {
 		return nil, err
 	}
 	replyErr := StringToError(reply.Error)
+	log.Printf("RPC contains error: %s\n", replyErr)
 	if replyErr != nil {
-		return nil, err
+		return nil, replyErr
 	}
+	log.Println("But that's no error!")
 	return reply.Reply.(*phatdb.DataNode), replyErr
 }
 
