@@ -36,7 +36,7 @@ type ReplicaState struct {
 	CommitNumber  uint
 	ReplicaNumber uint
 	Status        int
-    NormalView uint
+	NormalView    uint
 	// list of replica addresses, in sorted order
 	Config []string
 }
@@ -44,9 +44,8 @@ type ReplicaState struct {
 type MasterState struct {
 	A int
 	// bit vector of what replicas have replied
-	Replies uint64
-    ViewChangeMsgs uint
-
+	Replies        uint64
+	ViewChangeMsgs uint
 }
 
 type PrepareArgs struct {

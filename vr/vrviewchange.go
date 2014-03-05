@@ -1,25 +1,14 @@
 package vr
 
-/*
-Current gaps in this code:
--I use rstate.ViewChangeMsgs and mstate.ViewChangeMsgs but they are not defind
-and maybe shoud exist elsewhere. The replica ViewChangeMsgs determines how many
-StartViewChange msgs we have recied. The master ViewChangeMsgs does the same but
-for DoViewChange.
--Also have rstate.NormalView which is the last know normal view
-
-*/
-
 //dummy init state
 var newMasterArgs = NewMasterArgs{0, 0, phatlog, 0, 0}
 
 type NewMasterArgs struct {
-    View uint
-    MaxNormalView uint
-    Log           []string
+	View          uint
+	MaxNormalView uint
+	Log           []string
 	OpNumber      uint
 	CommitNumber  uint
-
 }
 
 type StartViewChangeArgs struct {
@@ -40,7 +29,7 @@ type StartViewArgs struct {
 	View         uint
 	Log          []string
 	OpNumber     uint
-    CommitNumber uint
+	CommitNumber uint
 }
 
 //A replica notices that a viewchange is needed - starts off the messages
@@ -69,7 +58,7 @@ func (t *Replica) StartViewChange(args *StartViewChangeArgs, reply *int) error {
 		rstate.Status = ViewChange
 	}
 
-    SVCargs := StartViewChangeArgs{rstate.View, rstate.ReplicaNumber}
+	SVCargs := StartViewChangeArgs{rstate.View, rstate.ReplicaNumber}
 
 	//send StartViewChange messages to all replicas
 	go sendAndRecv(NREPLICAS, "Replica.StartViewChange", SVCargs,
@@ -88,19 +77,19 @@ func (t *Replica) StartViewChange(args *StartViewChangeArgs, reply *int) error {
 func (t *Replica) DoViewChange(args *DoViewChangeArgs, reply *int) error {
 	mstate.ViewChangeMsgs++ //recieved a DoViewChange message
 
-    newMasterArgs.View = args.View
-    if args.NormalView > newMasterArgs.MaxNormalView || (args.NormalView == newMasterArgs.MaxNormalView && args.OpNumber > newMasterArgs.OpNumber){
-        newMasterArgs.MaxNormalView = args.NormalView
-        newMasterArgs.Log = args.Log
-        newMasterArgs.OpNumber = args.OpNumber
-    }
+	newMasterArgs.View = args.View
+	if args.NormalView > newMasterArgs.MaxNormalView || (args.NormalView == newMasterArgs.MaxNormalView && args.OpNumber > newMasterArgs.OpNumber) {
+		newMasterArgs.MaxNormalView = args.NormalView
+		newMasterArgs.Log = args.Log
+		newMasterArgs.OpNumber = args.OpNumber
+	}
 
-   if args.CommitNumber > newMasterArgs.CommitNumber {
-        newMasterArgs.CommitNumber = args.CommitNumber
-   }
+	if args.CommitNumber > newMasterArgs.CommitNumber {
+		newMasterArgs.CommitNumber = args.CommitNumber
+	}
 	//We have recived enough DoViewChange messages
 	if mstate.ViewChangeMsgs == F+1 {
-        rstate.View = newMasterArgs.View
+		rstate.View = newMasterArgs.View
 		phatlog = newMasterArgs.Log
 		rstate.OpNumber = newMasterArgs.OpNumber
 		rstate.CommitNumber = newMasterArgs.CommitNumber
