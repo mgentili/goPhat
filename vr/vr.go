@@ -6,14 +6,13 @@ import (
 	"log"
 	"net"
 	"net/rpc"
+	"time"
 )
 
 const (
 	F         = 1
 	NREPLICAS = 2 * F // doesn't count the master as a replica
 )
-
-var replicaAddress = []string{"127.0.0.1:9000", "127.0.0.1:9001", "127.0.0.1:9002"}
 
 var clients [NREPLICAS]*rpc.Client
 
@@ -37,6 +36,8 @@ type ReplicaState struct {
 	CommitNumber  uint
 	ReplicaNumber uint
 	Status        int
+	// list of replica addresses, in sorted order
+	Config []string
 }
 
 type MasterState struct {
@@ -75,17 +76,26 @@ func wrongView() error {
 
 func addLog(command interface{}) {
 	phatlog = append(phatlog, command.(string))
+	log.Printf("replica %d logging\n", rstate.ReplicaNumber)
 	//    phatlog.add(command)
 }
 
 func doCommit(cn uint) {
 	if cn <= rstate.CommitNumber {
+		log.Printf("Ignoring commit %d, already commited up to %d", cn, rstate.CommitNumber)
+		return
+	} else if cn > rstate.OpNumber {
+		log.Printf("replica %d needs to do state transfer. only at op %d in log but got commit for %d\n", rstate.ReplicaNumber, rstate.OpNumber, cn)
 		return
 	} else if cn > rstate.CommitNumber+1 {
-		log.Printf("Commits are ahead of us\n")
+		log.Printf("replica %d needs to do extra commits", rstate.ReplicaNumber)
+		// we're behind (but have all the log entries, so don't need to state
+		// transfer), so catch up by committing up to the current commit
+		for i := rstate.CommitNumber + 1; i < cn; i++ {
+			doCommit(i)
+		}
 	}
 	//    rstate.Commit()
-	log.Printf("'commiting'")
 	rstate.CommitNumber++
 }
 
@@ -93,6 +103,8 @@ func doCommit(cn uint) {
 type Replica struct{}
 
 func (t *Replica) Prepare(args *PrepareArgs, reply *PrepareReply) error {
+	log.Printf("Replica %d got prepare %d\n", rstate.ReplicaNumber, args.OpNumber)
+
 	if rstate.Status != Normal {
 		// TODO: ideally we should just not respond or something in this case
 		return errors.New("not in normal mode")
@@ -102,9 +114,9 @@ func (t *Replica) Prepare(args *PrepareArgs, reply *PrepareReply) error {
 		return wrongView()
 	}
 
-	if args.OpNumber != rstate.OpNumber-1 {
+	if args.OpNumber != rstate.OpNumber+1 {
 		// TODO: we should probably sleep or something til this is true??
-		return errors.New("op numbers out of sync")
+		return fmt.Errorf("op numbers out of sync: got %d expected %d", args.OpNumber, rstate.OpNumber+1)
 	}
 
 	rstate.OpNumber++
@@ -136,14 +148,31 @@ func (mstate *MasterState) Reset() {
 	mstate.Replies = 0
 }
 
-func masterInit() {
+func RunAsReplica(i uint, config []string) {
+	rstate.ReplicaNumber = i
+	rstate.Config = config
+
+	ln := ReplicaInit()
+
+	go ReplicaRun(ln)
+	if rstate.IsMaster() {
+		MasterInit()
+		for {
+			RunVR("foo")
+			RunVR("bar")
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+}
+
+func MasterInit() {
 	j := 0
 	var i uint = 0
 	for ; i < NREPLICAS+1; i++ {
 		if i == rstate.ReplicaNumber {
 			continue
 		}
-		c, err := rpc.Dial("tcp", replicaAddress[i])
+		c, err := rpc.Dial("tcp", rstate.Config[i])
 		if err != nil {
 			// couldn't connect to some replica, try to just keep going
 			// (could probably handle this better...)
@@ -154,9 +183,9 @@ func masterInit() {
 	}
 }
 
-func replicaInit() net.Listener {
+func ReplicaInit() net.Listener {
 	rpc.Register(new(Replica))
-	ln, err := net.Listen("tcp", replicaAddress[rstate.ReplicaNumber])
+	ln, err := net.Listen("tcp", rstate.Config[rstate.ReplicaNumber])
 	if err != nil {
 		fmt.Println(err)
 		return nil
@@ -165,7 +194,7 @@ func replicaInit() net.Listener {
 }
 
 // TODO: might not need to do this, e.g. if we handle client and server rpcs all on the same port
-func replicaRun(ln net.Listener) {
+func ReplicaRun(ln net.Listener) {
 	for {
 		c, err := ln.Accept()
 		if err != nil {
@@ -175,7 +204,7 @@ func replicaRun(ln net.Listener) {
 	}
 }
 
-func goVR(command interface{}) {
+func RunVR(command interface{}) {
 	assert(rstate.IsMaster() /*&& holdLease()*/)
 
 	// FIXME: right now we enforce that the last operation has been committed before starting a new one
@@ -194,6 +223,7 @@ func goVR(command interface{}) {
 }
 
 func handlePrepareOK(reply *PrepareReply) bool {
+	log.Printf("got response: %+v\n", reply)
 	if reply.View != rstate.View {
 		return false
 	}
@@ -206,8 +236,12 @@ func handlePrepareOK(reply *PrepareReply) bool {
 		return false
 	}
 
+	log.Printf("got suitable response\n")
+
 	mstate.Replies |= 1 << reply.ReplicaNumber
 	mstate.A++
+
+	log.Printf("new master state: %v\n", mstate)
 
 	// we've implicitly gotten a response from ourself already
 	if mstate.A != F {
@@ -215,7 +249,7 @@ func handlePrepareOK(reply *PrepareReply) bool {
 	}
 
 	// we've now gotten a majority
-	doCommit(rstate.CommitNumber)
+	doCommit(rstate.CommitNumber + 1)
 
 	args := CommitArgs{rstate.View, rstate.CommitNumber}
 	// TODO: technically only need to do this when we don't get another request from the client for a while
@@ -246,23 +280,36 @@ func sendAndRecv(N int, msg string, args interface{}, newReply func() interface{
 		}(ClientCall{call, client})
 	}
 
+	// send requests to the replicas
 	for i := 0; i < N; i++ {
 		sendOne(clients[i])
 	}
 
-	for i := 0; i < N; {
-		clientCall := <-callChan
-		call := clientCall.call
-		if call.Error != nil {
-			// for now just resend failed messages indefinitely
-			log.Println("sendAndRecv message error")
-			sendOne(clientCall.client)
-			continue
-		}
-		if handler(call.Reply) {
-			break
-		}
+	doneChan := make(chan int)
 
-		i++
-	}
+	go func() {
+		callHandler := true
+		// and now get the responses and retry if necessary
+		for i := 0; i < N; {
+			clientCall := <-callChan
+			call := clientCall.call
+			if call.Error != nil {
+				// for now just resend failed messages indefinitely
+				log.Printf("sendAndRecv message error: %v", call.Error)
+				sendOne(clientCall.client)
+				continue
+			}
+			if callHandler && handler(call.Reply) {
+				// signals doneChan so that sendAndRecv can exit
+				// (and the master can continue to the next request)
+				// we still continue and resend messages as neccesary, however
+				doneChan <- 0
+				callHandler = false
+			}
+
+			i++
+		}
+	}()
+
+	<-doneChan
 }
