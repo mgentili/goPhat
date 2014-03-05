@@ -60,7 +60,7 @@ func (t *Replica) StartViewChange(args *StartViewChangeArgs, reply *int) error {
 		rstate.Status = ViewChange
 	}
 
-	rstate.ViewChangeMsgs++ //when this equals NREPLICAS we send DoViewChange
+	rstate.ViewChangeMsgs++ //when this equals F we send DoViewChange
 
 	//send StartViewChange messages to all replicas
 	sendAndRecv(NREPLICAS, "Replica.StartViewChange", args,

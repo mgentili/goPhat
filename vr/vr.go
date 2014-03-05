@@ -10,8 +10,10 @@ import (
 )
 
 const (
-	F         = 1
-	NREPLICAS = 2 * F // doesn't count the master as a replica
+	F           = 1
+	NREPLICAS   = 2 * F // doesn't count the master as a replica
+	LEASE       = 5000
+	MAX_RENEWAL = LEASE / 2
 )
 
 var clients [NREPLICAS]*rpc.Client
@@ -36,6 +38,7 @@ type ReplicaState struct {
 	CommitNumber  uint
 	ReplicaNumber uint
 	Status        int
+	Timer         *time.Timer
 	// list of replica addresses, in sorted order
 	Config []string
 }
@@ -44,6 +47,10 @@ type MasterState struct {
 	A int
 	// bit vector of what replicas have replied
 	Replies uint64
+	Timer   *time.Timer
+
+	Heartbeats       int
+	HeartbeatReplies uint64
 }
 
 type PrepareArgs struct {
@@ -105,13 +112,15 @@ type Replica struct{}
 func (t *Replica) Prepare(args *PrepareArgs, reply *PrepareReply) error {
 	log.Printf("Replica %d got prepare %d\n", rstate.ReplicaNumber, args.OpNumber)
 
+	if args.View != rstate.View {
+		return wrongView()
+	}
+
+	rstate.ExtendLease() // do we extend lease in non-normal mode??
+
 	if rstate.Status != Normal {
 		// TODO: ideally we should just not respond or something in this case
 		return errors.New("not in normal mode")
-	}
-
-	if args.View != rstate.View {
-		return wrongView()
 	}
 
 	if args.OpNumber != rstate.OpNumber+1 {
@@ -134,6 +143,8 @@ func (t *Replica) Commit(args *CommitArgs, reply *int) error {
 		return wrongView()
 	}
 
+	rstate.ExtendLease()
+
 	doCommit(args.CommitNumber)
 
 	return nil
@@ -146,6 +157,48 @@ func (rstate *ReplicaState) IsMaster() bool {
 func (mstate *MasterState) Reset() {
 	mstate.A = 0
 	mstate.Replies = 0
+}
+
+func (m *MasterState) ExtendNeedsRenewal() {
+	m.Timer.Reset(MAX_RENEWAL)
+}
+
+func (m *MasterState) Heartbeat(replica uint) {
+	if ((1 << replica) & HeartbeatReplies) != 0 {
+		return
+	}
+
+	m.HeartbeatReplies |= 1 << replica
+	m.Heartbeats++
+
+	// we've gotten a majority to renew our lease!
+	if m.Heartbeats == F {
+		m.Heartbeats = 0
+		m.HeartbeatReplies = 0
+		// don't need to try renewing for a while
+		m.ExtendNeedsRenewal()
+		// update our own lease
+		rstate.ExtendLease()
+	}
+}
+
+func (r *ReplicaState) ExtendLease() {
+	r.Timer.Reset(LEASE)
+}
+
+func ReplicaTimeout() {
+	if rstate.IsMaster() {
+		log.Printf("we couldn't stay master :(\n")
+		// can't handle read requests anymore
+	}
+	PrepareViewChange()
+	// start counting again so we timeout if the new replica can't become master
+	rstate.ExtendLease()
+}
+
+func MasterNeedsRenewal() {
+	// TODO: master's been inactive for MAX_RENEWAL time, so we need to
+	// send explicit commits to renew lease
 }
 
 func RunAsReplica(i uint, config []string) {
@@ -165,7 +218,18 @@ func RunAsReplica(i uint, config []string) {
 	}
 }
 
-func MasterInit() {
+// HAX: need to setup so each replica has a connection setup with each other replica
+// but have to wait til all replicas are up to do this. so for now just assume that's
+// true after receiving the first rpc
+// this really needs to be more robust, e.g. handling reconnections
+var bool hasInterconnect = false
+
+// sets up connections with all other replicas
+func InterconnectionInit() {
+	if hasInterconnect {
+		return
+	}
+	hasInterconnect := true
 	j := 0
 	var i uint = 0
 	for ; i < NREPLICAS+1; i++ {
@@ -183,6 +247,11 @@ func MasterInit() {
 	}
 }
 
+func MasterInit() {
+	InterconnectionInit()
+	mstate.Timer = time.Timer.AfterFunc(MAX_RENEWAL, MasterNeedsRenewal)
+}
+
 func ReplicaInit() net.Listener {
 	rpc.Register(new(Replica))
 	ln, err := net.Listen("tcp", rstate.Config[rstate.ReplicaNumber])
@@ -190,6 +259,7 @@ func ReplicaInit() net.Listener {
 		fmt.Println(err)
 		return nil
 	}
+	rstate.Timer = time.Timer.AfterFunc(LEASE, ReplicaTimeout)
 	return ln
 }
 
@@ -201,6 +271,8 @@ func ReplicaRun(ln net.Listener) {
 			continue
 		}
 		rpc.ServeConn(c)
+
+		InterconnectionInit()
 	}
 }
 
