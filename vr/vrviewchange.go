@@ -11,10 +11,6 @@ In DoViewChange settings the new variables correctly when we can be missing inde
 //Need a slice of DoViewChange args (somewhere)
 var DVCArgs [NREPLICAS]DoViewChangeArgs
 
-//Not sure if this is necesary - just to mirror syntax
-type EmptyReply struct {
-}
-
 type StartViewChangeArgs struct {
 	View          int
 	ReplicaNumber int
@@ -23,7 +19,7 @@ type StartViewChangeArgs struct {
 type DoViewChangeArgs struct {
 	View          int
 	ReplicaNumber int
-	//l log
+	Log []string
 	NormalView   int //last time the view was "normal"
 	OpNumber     int
 	CommitNumber int
@@ -31,8 +27,8 @@ type DoViewChangeArgs struct {
 
 type StartViewArgs struct {
 	View int
-	//l log
 	OpNumber     int
+    Log []string
 	CommitNumber int
 }
 
@@ -42,37 +38,40 @@ func PrepareViewChange() {
 	rstate.View++
 
 	args := StartViewChangeArgs{rstate.View, rstate.ReplicaNumber}
-	replyConstructor := func() { return new(EmptyReply) }
 
-	//send StartViewChanges to all replicas
-	//Confused by the syntax, basically we do not care about return value
-	sendAndRecv(NREPLICAS, "Replica.StartViewChange", args, replyConstructor, func(reply interface{}) bool {
-		return reply.(*EmptyReply)
-	})
+	sendAndRecv(NREPLICAS, "Replica.StartViewChange", args,
+		func() interface{} { return nil },
+		func(r interface{}) bool { return false })
 
 }
 
 //viewchange RPCs
 func (t *Replica) StartViewChange(args *StartViewChangeArgs, reply *EmptyReply) error {
-	rstate.View = args.View
-	rstate.Status = ViewChange
-	rstate.ViewChangeMsgs++ //when this equals NREPLICAS we send DoViewChange
+    //This view is already ahead of the proposed one
+    if r.View > args.View {
+        return nil
+    }
 
-	//send StartViewChange messages to everyone
-	args := StartViewChangeArgs{rstate.View, rstate.ReplicaNumber}
+    if r.View < args.View {
+        rstate.View = args.View
+        rstate.Status = ViewChange
+    }
+
+    rstate.ViewChangeMsgs++ //when this equals NREPLICAS we send DoViewChange
+
+	//send StartViewChange messages to all replicas
 	replyConstructor := func() { return new(EmptyReply) }
 
-	//TODO:INFINITE RECURSION - do not sent to self??
-	//Confused by the syntax, basically we do not care about return value
-	sendAndRecv(NREPLICAS, "Replica.StartViewChange", args, replyConstructor, func(reply interface{}) bool {
-		return reply.(*EmptyReply)
-	})
+	sendAndRecv(NREPLICAS, "Replica.StartViewChange", args,
+		func() interface{} { return nil },
+		func(r interface{}) bool { return false })
 
 	//We have a majority for StartViewChange msgs -- send DoViewChange to
 	//new master -- rstate.View % NREPLICAS+1 is assumed the master..
 	if rstate.ViewChangeMsgs == F {
-		args := DoViewChangeArgs{rstate.View, rstate.ReplicaNumber /*log l*/, rstate.View, rstate.OpNumber, rstate.CommitNumber}
+		args := DoViewChangeArgs{rstate.View, rstate.ReplicaNumber, phatlog, rstate.View, rstate.OpNumber, rstate.CommitNumber}
 		replyConstructor := func() { return new(EmptyReply) }
+
 
 		call := clients[rstate.View%(NREPLICAS+1)].Go("Replica.DoViewChange", args, replyConstructor, nil)
 
