@@ -38,12 +38,12 @@ type StartViewArgs struct {
 
 //A replica notices that a viewchange is needed - starts off the messages
 func PrepareViewChange() {
-	rstate.Status = "ViewChange"
+	rstate.Status = ViewChange
 	rstate.View++
 
 	//send StartViewChanges to all replicas
 	//Confused by the syntax, basically we do not care about return value
-	sendAndRecv(NREPLICAS, "StartViewChange", args, replyConstructor, func(reply interface{}) bool {
+	sendAndRecv(NREPLICAS, "Replica.StartViewChange", args, replyConstructor, func(reply interface{}) bool {
 		return reply.(*EmptyReply)
 	})
 
@@ -56,7 +56,7 @@ func (t *Replica) StartViewChange(args *StartViewChangeArgs, reply *EmptyReply) 
 	}
 
 	rstate.View = args.View
-	rstate.Status = "ViewChange"
+	rstate.Status = ViewChange
 	rstate.ViewChangeMsgs++ //when this equals NREPLICAS we send DoViewChange
 
 	//send StartViewChange messages to everyone
@@ -65,7 +65,7 @@ func (t *Replica) StartViewChange(args *StartViewChangeArgs, reply *EmptyReply) 
 
 	//TODO:INFINITE RECURSION - do not sent to self??
 	//Confused by the syntax, basically we do not care about return value
-	sendAndRecv(NREPLICAS, "StartViewChange", args, replyConstructor, func(reply interface{}) bool {
+	sendAndRecv(NREPLICAS, "Replica.StartViewChange", args, replyConstructor, func(reply interface{}) bool {
 		return reply.(*EmptyReply)
 	})
 
@@ -75,7 +75,7 @@ func (t *Replica) StartViewChange(args *StartViewChangeArgs, reply *EmptyReply) 
 		args := DoViewChangeArgs{rstate.View, rstate.ReplicaNumber /*log l*/, rstate.View, rstate.OpNumber, rstate.CommitNumber}
 		replyConstructor := func() { return new(EmptyReply) }
 
-		call := clients[rstate.View%NREPLICAS+1].Go("DoViewChange", args, replyConstructor, nil)
+		call := clients[rstate.View%(NREPLICAS+1)].Go("Replica.DoViewChange", args, replyConstructor, nil)
 
 	}
 
@@ -96,7 +96,7 @@ func (t *Replica) DoViewChange(args *DoViewChangeArgs, reply *EmptyReply) error 
 		replyConstructor := func() { return new(EmptyReply) }
 
 		//Confused by the syntax, basically we do not care about return value
-		sendAndRecv(NREPLICAS, "StartView", args, replyConstructor, func(reply interface{}) bool {
+		sendAndRecv(NREPLICAS, "Replica.StartView", args, replyConstructor, func(reply interface{}) bool {
 			return reply.(*EmptyReply)
 		})
 
