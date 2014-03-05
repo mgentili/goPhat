@@ -4,7 +4,7 @@ import (
 	"net/rpc"
 	"time"
 	//	"fmt"
-	//	"errors"
+	"errors"
 	"github.com/mgentili/goPhat/phatdb"
 	"log"
 	//	"os"
@@ -45,6 +45,20 @@ func NewClient(servers []string, id int) (*PhatClient, error) {
 	}
 
 	return c, nil
+}
+
+//iterate throuhg all servers, trying to connect to any one
+func (c *PhatClient) connectToAnyServer() error {
+	for i := 0; i < len(c.ServerLocations); i=i+1 {
+		client, err := rpc.Dial("tcp", c.ServerLocations[i])
+		if err == nil {
+			c.Id = i
+			c.RpcClient = client
+			return nil
+		}
+	}
+
+	return errors.New("Cannot connect to any server")
 }
 
 //connects to current Phat Master
