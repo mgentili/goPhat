@@ -18,7 +18,7 @@ func main() {
 		fmt.Printf(err.Error())
 	}
 
-	resp, err := cli.GetContents("/dev/null")
+	resp, err := cli.GetData("/dev/null")
 	if err != nil {
 		fmt.Printf(err.Error())
 	}

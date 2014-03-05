@@ -15,7 +15,7 @@ type Server struct {
 	Id              int
 	MasterId        int
 	ServerLocations []string
-	InputChan chan phatdb.DBCommandWithChannel
+	InputChan       chan phatdb.DBCommandWithChannel
 }
 
 func (s *Server) startDB() {
@@ -59,7 +59,7 @@ func (s *Server) RPCDB(args *phatdb.DBCommand, reply *phatdb.DBResponse) error {
 	log.Printf("Master id: %d, My id: %d", s.MasterId, s.Id)
 	if s.Id != s.MasterId {
 		log.Println("I'm not the master!")
-		reply.Error = errors.New("Not master")
+		reply.Error = errors.New("Not master node")
 		reply.Reply = s.MasterId
 		return nil
 	} else {
@@ -67,19 +67,18 @@ func (s *Server) RPCDB(args *phatdb.DBCommand, reply *phatdb.DBResponse) error {
 		switch args.Command {
 		//if the command is a write, then we need to go through paxos
 		case "CREATE", "DELETE", "SET":
-			log.Println("Need to send command to paxos")
+			log.Println("Need to send command via Paxos")
 			s.InputChan <- argsWithChannel
 			rep := <-argsWithChannel.Done
 			*reply = *rep
-			//			paxos(args)
-		//otherwise, we can go directly to the database
+			//paxos(args)
 		default:
-			log.Println("Read command")
+			log.Println("Read-only command skips Paxos")
 			s.InputChan <- argsWithChannel
 			rep := <-argsWithChannel.Done
 			*reply = *rep
+			log.Println("Finished read-only")
 		}
 	}
-	log.Println("Done with rpcdb call!")
 	return nil
 }

@@ -1,13 +1,11 @@
 package gophat
 
 import (
-	"net/rpc"
-	"time"
-	//	"fmt"
 	"errors"
 	"github.com/mgentili/goPhat/phatdb"
 	"log"
-	//	"os"
+	"net/rpc"
+	"time"
 )
 
 const DefaultTimeout = time.Duration(100) * time.Millisecond
@@ -24,8 +22,8 @@ type PhatClient struct {
 
 type Null struct{}
 
-//creates a new client connected to the server with given id
-//and then tries to connect to master server
+// Create a new client connected to the server with given id
+// and attempt to connect to the master server
 func NewClient(servers []string, id int) (*PhatClient, error) {
 	c := new(PhatClient)
 	c.ServerLocations = servers
@@ -47,9 +45,9 @@ func NewClient(servers []string, id int) (*PhatClient, error) {
 	return c, nil
 }
 
-//iterate throuhg all servers, trying to connect to any one
+// Iterate throuhg all servers and attempt to connect to any one
 func (c *PhatClient) connectToAnyServer() error {
-	for i := 0; i < len(c.ServerLocations); i=i+1 {
+	for i := 0; i < len(c.ServerLocations); i++ {
 		client, err := rpc.Dial("tcp", c.ServerLocations[i])
 		if err == nil {
 			c.Id = i
@@ -63,16 +61,14 @@ func (c *PhatClient) connectToAnyServer() error {
 
 //connects to current Phat Master
 func (c *PhatClient) connectToMaster() error {
-	log.Println("Connecting to master")
+	log.Println("Connecting to the master...")
 
-	/*f := func() *rpc.Call {return c.RpcClient.Go("Server.Getmaster", new(Null), &c.MasterLocation, nil)}
-	err := doWithTimeout(time.Second, f)*/
 	err := c.RpcClient.Call("Server.GetMaster", new(Null), &c.MasterId)
 	if err != nil {
 		log.Println(err)
 		return err
 	}
-	//if server connected to isn't the master, connect to master
+	// If the given server isn't the master, connect to master
 	if c.MasterId != c.Id {
 		log.Printf("Called Server.GetMaster, current master id is %d, my id is %d",
 			c.MasterId, c.Id)
@@ -89,131 +85,59 @@ func (c *PhatClient) connectToMaster() error {
 	return nil
 }
 
-//returns handle to the root node of file system
-func (c *PhatClient) GetRoot() (*phatdb.DataNode, error) {
-	args := phatdb.DBCommand{"GETROOT", "", ""}
-	var reply phatdb.DBResponse
-	err := c.RpcClient.Call("Server.RPCDB", &args, &reply)
-	if err != nil {
-		return nil, err
-	}
-
-	return reply.Reply.(*phatdb.DataNode), reply.Error
-}
-
-/*func (c *PhatClient) open(subpath string) (p, error){
-	args := phatdb.DBCommand{"OPEN", subpath, ""}
-	var reply phatdb.DBResponse
-	err := c.RpcClient.Call("Server.RPCDB", &args, &reply)
-
-	return reply, err
-}*/
-
-func (c *PhatClient) Mkfile(subpath string, initialdata string) (*phatdb.DataNode, error) {
+func (c *PhatClient) Create(subpath string, initialdata string) (*phatdb.DataNode, error) {
 	args := phatdb.DBCommand{"CREATE", subpath, initialdata}
 	var reply phatdb.DBResponse
 	err := c.RpcClient.Call("Server.RPCDB", &args, &reply)
-	log.Printf("Mkfile finished!\n")
+	log.Printf("Create complete\n")
 	if err != nil {
 		return nil, err
 	}
 	return reply.Reply.(*phatdb.DataNode), reply.Error
 }
 
-func (c *PhatClient) Mkdir(subpath string) (*phatdb.DataNode, error) {
-	args := phatdb.DBCommand{"CREATE", subpath, ""}
-	var reply phatdb.DBResponse
-	err := c.RpcClient.Call("Server.RPCDB", &args, &reply)
+func (c *PhatClient) GetData(subpath string) (*phatdb.DataNode, error) {
+	args := &phatdb.DBCommand{"GET", subpath, ""}
+	reply := &phatdb.DBResponse{}
+	log.Printf("Got")
+	err := c.RpcClient.Call("Server.RPCDB", args, reply)
+	log.Printf("Gotten")
 	if err != nil {
 		return nil, err
 	}
-
-	return reply.Reply.(*phatdb.DataNode), reply.Error
-}
-
-func (c *PhatClient) GetContents(subpath string) (*phatdb.DataNode, error) {
-	args := phatdb.DBCommand{"GET", subpath, ""}
-	var reply phatdb.DBResponse
-	log.Printf("Getting contents with subpath %v\n", subpath)
-	err := c.RpcClient.Call("Server.RPCDB", &args, &reply)
-	log.Printf("Call finished!\n")
-	if err != nil {
-		return nil, err
-	}
-
 	if reply.Error != nil {
 		return nil, reply.Error
 	}
-	log.Printf("Got to bottom without erroring\n")
+	log.Printf("No error")
 	return reply.Reply.(*phatdb.DataNode), reply.Error
 }
 
-func (c *PhatClient) PutContents(subpath string, data string) error {
+func (c *PhatClient) SetData(subpath string, data string) error {
 	args := phatdb.DBCommand{"SET", subpath, data}
 	var reply phatdb.DBResponse
 	err := c.RpcClient.Call("Server.RPCDB", &args, &reply)
 	if err != nil {
 		return err
 	}
-
 	return reply.Error
 }
 
-func (c *PhatClient) ReadDir(subpath string) (*phatdb.DataNode, error) {
-	args := phatdb.DBCommand{"GET", subpath, ""}
+func (c *PhatClient) GetChildren(subpath string) ([]string, error) {
+	args := phatdb.DBCommand{"CHILDREN", subpath, ""}
 	var reply phatdb.DBResponse
 	err := c.RpcClient.Call("Server.RPCDB", &args, &reply)
 	if err != nil {
 		return nil, err
 	}
-
-	return reply.Reply.(*phatdb.DataNode), reply.Error
+	return reply.Reply.([]string), reply.Error
 }
 
-func (c *PhatClient) Stat(subpath string) (*phatdb.StatNode, error) {
+func (c *PhatClient) GetStats(subpath string) (*phatdb.StatNode, error) {
 	args := phatdb.DBCommand{"STAT", subpath, ""}
 	var reply phatdb.DBResponse
 	err := c.RpcClient.Call("Server.RPCDB", &args, &reply)
 	if err != nil {
 		return nil, err
 	}
-
 	return reply.Reply.(*phatdb.StatNode), reply.Error
 }
-
-/*func Flock(h Handle, lt LockType) Sequencer {
-	var sq Sequencer
-	return sq
-}
-
-func Funlock(h Handle) Sequencer {
-	var sq Sequencer
-	return sq
-}
-
-func Delete(h Handle) error {
-	return nil
-}*/
-
-//performs a Go RPC call with a given timeout, returning an
-//error if the response isn't quick enough
-/*type toRun func ()
-
-func doWithTimeout(dur time.Duration, f toRun) error {
-	timeout := make(chan bool, 1)
-	go func() {
-		time.Sleep(dur)
-		timeout <- true
-	}()
-	response := f()
-	select {
-	case <-timeout:
-		return errors.New("Timed out")
-	case <-response.Done:
-		if response.Error != nil {
-			return response.Error
-		}
-	}
-
-	return nil
-}*/

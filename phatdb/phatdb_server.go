@@ -17,7 +17,7 @@ type DBResponse struct {
 }
 
 type DBCommandWithChannel struct {
-	Cmd *DBCommand
+	Cmd  *DBCommand
 	Done chan *DBResponse
 }
 
@@ -30,27 +30,43 @@ func DatabaseServer(input chan DBCommandWithChannel) {
 		request := <-input
 		req := request.Cmd
 		log.Printf("Received request: %s", req.Command)
+		resp := &DBResponse{}
 		switch req.Command {
 		case "CHILDREN":
 			kids, err := getChildren(root, req.Path)
-			request.Done <- &DBResponse{kids, err}
+			if resp.Error = err; err == nil {
+				resp.Reply = kids
+			}
 		case "CREATE":
 			n, err := createNode(root, req.Path, req.Value)
-			request.Done <- &DBResponse{n, err}
+			if resp.Error = err; err == nil {
+				resp.Reply = n
+			}
 		case "DELETE":
 			n, err := deleteNode(root, req.Path)
-			request.Done <- &DBResponse{n, err}
+			if resp.Error = err; err == nil {
+				resp.Reply = n
+			}
 		case "EXISTS":
 			n, err := existsNode(root, req.Path)
-			request.Done <- &DBResponse{n, err}
+			if resp.Error = err; err == nil {
+				resp.Reply = n
+			}
 		case "GET":
 			n, err := getNode(root, req.Path)
-			request.Done <- &DBResponse{n, err}
+			log.Println(err)
+			if resp.Error = err; err == nil {
+				resp.Reply = n
+			}
 		case "SET":
 			n, err := setNode(root, req.Path, req.Value)
-			request.Done <- &DBResponse{n, err}
+			if resp.Error = err; err == nil {
+				resp.Reply = n
+			}
 		default:
-			request.Done <- &DBResponse{nil, errors.New("Unknown command")}
+			err := errors.New("Unknown command")
+			resp.Error = err
 		}
+		request.Done <- resp
 	}
 }
