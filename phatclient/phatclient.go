@@ -35,7 +35,7 @@ type Null struct{}
 // and attempt to connect to the master server
 func NewClient(servers []string, id int) (*PhatClient, error) {
 	c := new(PhatClient)
-    // We need to register the DataNode and StatNode before we can use them in gob
+	// We need to register the DataNode and StatNode before we can use them in gob
 	gob.Register(phatdb.DataNode{})
 	gob.Register(phatdb.StatNode{})
 	c.ServerLocations = servers
