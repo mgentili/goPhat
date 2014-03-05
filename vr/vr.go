@@ -12,7 +12,7 @@ import (
 const (
 	F           = 1
 	NREPLICAS   = 2 * F // doesn't count the master as a replica
-	LEASE       = 5000
+	LEASE       = 5000 * time.Millisecond
 	MAX_RENEWAL = LEASE / 2
 )
 
@@ -167,7 +167,7 @@ func (m *MasterState) ExtendNeedsRenewal() {
 }
 
 func (m *MasterState) Heartbeat(replica uint) {
-	if ((1 << replica) & HeartbeatReplies) != 0 {
+	if ((1 << replica) & mstate.HeartbeatReplies) != 0 {
 		return
 	}
 
@@ -194,6 +194,7 @@ func ReplicaTimeout() {
 		log.Printf("we couldn't stay master :(\n")
 		// can't handle read requests anymore
 	}
+	log.Printf("replica %d timed out, trying view change", rstate.ReplicaNumber)
 	PrepareViewChange()
 	// start counting again so we timeout if the new replica can't become master
 	rstate.ExtendLease()
@@ -225,14 +226,14 @@ func RunAsReplica(i uint, config []string) {
 // but have to wait til all replicas are up to do this. so for now just assume that's
 // true after receiving the first rpc
 // this really needs to be more robust, e.g. handling reconnections
-var bool hasInterconnect = false
+var hasInterconnect bool = false
 
 // sets up connections with all other replicas
 func InterconnectionInit() {
 	if hasInterconnect {
 		return
 	}
-	hasInterconnect := true
+	hasInterconnect = true
 	j := 0
 	var i uint = 0
 	for ; i < NREPLICAS+1; i++ {
@@ -252,7 +253,7 @@ func InterconnectionInit() {
 
 func MasterInit() {
 	InterconnectionInit()
-	mstate.Timer = time.Timer.AfterFunc(MAX_RENEWAL, MasterNeedsRenewal)
+	mstate.Timer = time.AfterFunc(MAX_RENEWAL, MasterNeedsRenewal)
 }
 
 func ReplicaInit() net.Listener {
@@ -262,7 +263,7 @@ func ReplicaInit() net.Listener {
 		fmt.Println(err)
 		return nil
 	}
-	rstate.Timer = time.Timer.AfterFunc(LEASE, ReplicaTimeout)
+	rstate.Timer = time.AfterFunc(LEASE, ReplicaTimeout)
 	return ln
 }
 
