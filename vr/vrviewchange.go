@@ -55,7 +55,7 @@ func (t *Replica) StartViewChange(args *StartViewChangeArgs, reply *int) error {
 	}
 
 	if r.View < args.View {
-        rstate.NormalView = rstate.View //last known normal View
+		rstate.NormalView = rstate.View //last known normal View
 		rstate.View = args.View
 		rstate.Status = ViewChange
 	}
@@ -63,8 +63,6 @@ func (t *Replica) StartViewChange(args *StartViewChangeArgs, reply *int) error {
 	rstate.ViewChangeMsgs++ //when this equals NREPLICAS we send DoViewChange
 
 	//send StartViewChange messages to all replicas
-	replyConstructor := func() { return new(EmptyReply) }
-
 	sendAndRecv(NREPLICAS, "Replica.StartViewChange", args,
 		func() interface{} { return nil },
 		func(r interface{}) bool { return false })
@@ -73,7 +71,6 @@ func (t *Replica) StartViewChange(args *StartViewChangeArgs, reply *int) error {
 	//new master -- rstate.View % NREPLICAS+1 is assumed the master..
 	if rstate.ViewChangeMsgs == F {
 		args := DoViewChangeArgs{rstate.View, rstate.ReplicaNumber, phatlog, rstate.NormalView, rstate.OpNumber, rstate.CommitNumber}
-		replyConstructor := func() { return new(EmptyReply) }
 
 		//TODO:Verify this line is right!!
 		call := clients[rstate.View%(NREPLICAS+1)].Go("Replica.DoViewChange", args, interface{})
@@ -120,13 +117,13 @@ func (t *Replica) DoViewChange(args *DoViewChangeArgs, reply *int) error {
 		rstate.OpNumber = tmpOpNumber //I believe this is right
 		rstate.CommitNumber = maxCommit
 
-        //send the StartView messages to all replicas
+		//send the StartView messages to all replicas
 		args := StartViewArgs{rstate.View, phatlog, rstate.OpNumber, rstate.CommitNumber}
 		sendAndRecv(NREPLICAS, "Replica.StartView", args,
 			func() interface{} { return nil },
 			func(r interface{}) bool { return false })
 
-        mstate.ViewChangeMsgs = 0 //I think this is safe
+		mstate.ViewChangeMsgs = 0 //I think this is safe
 	}
 	return nil
 }
@@ -135,7 +132,7 @@ func (t *Replica) StartView(args *DoViewChangeArgs, reply *int) error {
 	phatlog = args.Log
 	rstate.OpNumber = args.OpNumber
 	rstate.CommitNumber = args.CommitNumber
-    rstate.ViewChangeMsgs = 0 //I think this is safe to do here
+	rstate.ViewChangeMsgs = 0 //I think this is safe to do here
 
 	return nil
 }
