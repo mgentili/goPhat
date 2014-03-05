@@ -68,8 +68,10 @@ func (t *Replica) StartViewChange(args *StartViewChangeArgs, reply *int) error {
 	//new master -- rstate.View % NREPLICAS+1 is assumed the master..
 	DVCargs := DoViewChangeArgs{rstate.View, rstate.ReplicaNumber, phatlog, rstate.NormalView, rstate.OpNumber, rstate.CommitNumber}
 
-	//TODO:Verify this line is right!!
-	clients[rstate.View%(NREPLICAS+1)].Call("Replica.DoViewChange", DVCargs, nil)
+	// only send DoViewChange if we're not the new master (can't actually send a message to ourself)
+	if !rstate.IsMaster() {
+		clients[rstate.View%(NREPLICAS+1)].Call("Replica.DoViewChange", DVCargs, nil)
+	}
 
 	return nil
 }
