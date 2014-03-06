@@ -132,7 +132,7 @@ func (c *PhatClient) GetData(subpath string) (*phatdb.DataNode, error) {
 
 func (c *PhatClient) SetData(subpath string, data string) error {
 	args := &phatdb.DBCommand{"SET", subpath, data}
-	reply, err := c.processCall(args)
+	_, err := c.processCall(args)
 	return err
 }
 
