@@ -57,7 +57,7 @@ func NewClient(servers []string, id int) (*PhatClient, error) {
 	return c, nil
 }
 
-// Iterate throuhg all servers and attempt to connect to any one
+// Iterate through all servers and attempt to connect to any one
 func (c *PhatClient) connectToAnyServer() error {
 	for i := 0; i < len(c.ServerLocations); i++ {
 		client, err := rpc.Dial("tcp", c.ServerLocations[i])
