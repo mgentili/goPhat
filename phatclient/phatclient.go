@@ -71,7 +71,7 @@ func (c *PhatClient) connectToAnyServer() error {
 	return errors.New("Cannot connect to any server")
 }
 
-//connects to current Phat Master
+//  Connect to the current master node
 func (c *PhatClient) connectToMaster() error {
 	log.Println("Connecting to the master...")
 
