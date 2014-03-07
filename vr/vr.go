@@ -33,14 +33,14 @@ type Command string
 var phatlog []string
 
 type ReplicaState struct {
-	View          uint
-	OpNumber      uint
-	CommitNumber  uint
-	ReplicaNumber uint
-	Status        int
-	NormalView    uint
-    ViewChangeMsgs uint
-	Timer         *time.Timer
+	View           uint
+	OpNumber       uint
+	CommitNumber   uint
+	ReplicaNumber  uint
+	Status         int
+	NormalView     uint
+	ViewChangeMsgs uint
+	Timer          *time.Timer
 	// list of replica addresses, in sorted order
 	Config []string
 }
@@ -50,11 +50,27 @@ type MasterState struct {
 	// bit vector of what replicas have replied
 	Replies uint64
 
-	ViewChangeMsgs uint
-
 	Timer            *time.Timer
 	Heartbeats       int
 	HeartbeatReplies uint64
+}
+
+type ViewChangeState struct {
+	DoViewChangeMsgs [NREPLICAS + 1]DoViewChangeArgs
+	DoViewReplies    uint64
+	StartViewReplies uint64
+	StartViews       uint
+	DoViews          uint
+	NormalView       uint
+}
+
+type DoViewChangeArgs struct {
+	View          uint
+	ReplicaNumber uint
+	Log           []string
+	NormalView    uint
+	OpNumber      uint
+	CommitNumber  uint
 }
 
 type PrepareArgs struct {
@@ -163,7 +179,6 @@ func (rstate *ReplicaState) IsMaster() bool {
 func (mstate *MasterState) Reset() {
 	mstate.A = 0
 	mstate.Replies = 0
-    mstate.ViewChangeMsgs = 0
 }
 
 func (m *MasterState) ExtendNeedsRenewal() {

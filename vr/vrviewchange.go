@@ -4,29 +4,11 @@ import (
 	"log"
 )
 
-//dummy init state
-var newMasterArgs = NewMasterArgs{0, 0, phatlog, 0, 0}
-
-type NewMasterArgs struct {
-	View          uint
-	MaxNormalView uint
-	Log           []string
-	OpNumber      uint
-	CommitNumber  uint
-}
+var vcstate ViewChangeState
 
 type StartViewChangeArgs struct {
 	View          uint
 	ReplicaNumber uint
-}
-
-type DoViewChangeArgs struct {
-	View          uint
-	ReplicaNumber uint
-	Log           []string
-	NormalView    uint
-	OpNumber      uint
-	CommitNumber  uint
 }
 
 type StartViewArgs struct {
@@ -36,10 +18,15 @@ type StartViewArgs struct {
 	CommitNumber uint
 }
 
+func logVCState(state string) {
+	log.Printf("Replica %d at state %s\n", rstate.ReplicaNumber, state)
+	log.Printf("StartViewChangeReplies: %d\n", vcstate.StartViewReplies)
+	log.Printf("---\n")
+}
+
 //A replica notices that a viewchange is needed - starts off the messages
 func PrepareViewChange() {
-	log.Printf("Replica %d starts PrepareViewChange\n", rstate.ReplicaNumber)
-
+	logVCState("PrepareViewChange")
 	rstate.Status = ViewChange
 	rstate.View++
 
@@ -53,19 +40,26 @@ func PrepareViewChange() {
 
 //viewchange RPCs
 func (t *Replica) StartViewChange(args *StartViewChangeArgs, reply *int) error {
-	log.Printf("Replica %d recieved StartViewChange from %d\n", rstate.ReplicaNumber, args.ReplicaNumber)
+	logVCState("StartViewChange")
 
 	//This view is already ahead of the proposed one
 	if rstate.View > args.View {
 		return nil
 	}
 
+	//already recieved a message from this replica
+	if ((1 << args.ReplicaNumber) & vcstate.StartViewReplies) != 0 {
+		return nil
+	}
+
+	vcstate.StartViewReplies |= 1 << args.ReplicaNumber
+	vcstate.StartViews++
+
 	//first time we have seen this viewchange message
 	if rstate.View < args.View {
-		rstate.NormalView = rstate.View //last known normal View
+		vcstate.NormalView = rstate.View //last known normal View
 		rstate.View = args.View
 		rstate.Status = ViewChange
-		rstate.ViewChangeMsgs = 1
 
 		SVCargs := StartViewChangeArgs{rstate.View, rstate.ReplicaNumber}
 
@@ -75,15 +69,10 @@ func (t *Replica) StartViewChange(args *StartViewChangeArgs, reply *int) error {
 			func(r interface{}) bool { return false })
 	}
 
-	if rstate.View >= args.View {
-		rstate.ViewChangeMsgs++
-	}
+	if vcstate.StartViews == F {
+		logVCState("Sending DoViewChange")
 
-	if rstate.ViewChangeMsgs == F {
-		log.Printf("Replica %d sent DoViewChange to %d\n", rstate.ReplicaNumber, rstate.View%(NREPLICAS+1))
-
-		//new master -- rstate.View % NREPLICAS+1 is assumed the master..
-		DVCargs := DoViewChangeArgs{rstate.View, rstate.ReplicaNumber, phatlog, rstate.NormalView, rstate.OpNumber, rstate.CommitNumber}
+		DVCargs := DoViewChangeArgs{rstate.View, rstate.ReplicaNumber, phatlog, vcstate.NormalView, rstate.OpNumber, rstate.CommitNumber}
 
 		// only send DoViewChange if we're not the new master (can't actually send a message to ourself)
 		if !rstate.IsMaster() {
@@ -95,26 +84,21 @@ func (t *Replica) StartViewChange(args *StartViewChangeArgs, reply *int) error {
 }
 
 func (t *Replica) DoViewChange(args *DoViewChangeArgs, reply *int) error {
-	log.Printf("Replica %d recieved DoViewChange from %d\n", rstate.ReplicaNumber, args.ReplicaNumber)
+	logVCState("DoViewChange")
 
-	mstate.ViewChangeMsgs++ //recieved a DoViewChange message
-
-	newMasterArgs.View = args.View
-	if args.NormalView > newMasterArgs.MaxNormalView || (args.NormalView == newMasterArgs.MaxNormalView && args.OpNumber > newMasterArgs.OpNumber) {
-		newMasterArgs.MaxNormalView = args.NormalView
-		newMasterArgs.Log = args.Log
-		newMasterArgs.OpNumber = args.OpNumber
+	//already recieved a message from this replica
+	if ((1 << args.ReplicaNumber) & vcstate.DoViewReplies) != 0 {
+		return nil
 	}
 
-	if args.CommitNumber > newMasterArgs.CommitNumber {
-		newMasterArgs.CommitNumber = args.CommitNumber
-	}
+	vcstate.DoViewReplies |= 1 << args.ReplicaNumber
+	vcstate.DoViews++
+	vcstate.DoViewChangeMsgs[args.ReplicaNumber] = *args
+
 	//We have recived enough DoViewChange messages
-	if mstate.ViewChangeMsgs == F+1 {
-		rstate.View = newMasterArgs.View
-		phatlog = newMasterArgs.Log
-		rstate.OpNumber = newMasterArgs.OpNumber
-		rstate.CommitNumber = newMasterArgs.CommitNumber
+	if vcstate.DoViews == F+1 {
+		//TODO: implement
+		calcMasterView()
 
 		//send the StartView messages to all replicas
 		SVargs := StartViewArgs{rstate.View, phatlog, rstate.OpNumber, rstate.CommitNumber}
@@ -122,17 +106,29 @@ func (t *Replica) DoViewChange(args *DoViewChangeArgs, reply *int) error {
 			func() interface{} { return nil },
 			func(r interface{}) bool { return false })
 
-		mstate.ViewChangeMsgs = 0
 	}
 	return nil
 }
 
 func (t *Replica) StartView(args *DoViewChangeArgs, reply *int) error {
-	log.Printf("Replica %d recieved StartView\n", rstate.ReplicaNumber)
+	logVCState("StartView")
 
 	phatlog = args.Log
 	rstate.OpNumber = args.OpNumber
 	rstate.CommitNumber = args.CommitNumber
 
 	return nil
+}
+
+func calcMasterView() {
+	rstate.View = vcstate.DoViewChangeMsgs[0].View
+
+	/*
+	   for i  := 0; i < NREPLICAS+1; i++ {
+	       if i != rstate.ReplicaNumber {
+
+	       }
+	   }
+	*/
+
 }
