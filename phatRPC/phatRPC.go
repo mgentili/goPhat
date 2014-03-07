@@ -19,6 +19,7 @@ type Server struct {
 
 type Null struct{}
 
+// startDB starts the database for the server
 func (s *Server) startDB() {
 	log.Println("Starting DB")
 	input := make(chan phatdb.DBCommandWithChannel)
@@ -26,7 +27,7 @@ func (s *Server) startDB() {
 	go phatdb.DatabaseServer(input)
 }
 
-//starts a TCP server that accepts at the given port
+// startServer starts a TCP server that accepts client requests at the given port
 func StartServer(port int, masterId int) *rpc.Server {
 	tcpAddr, _ := net.ResolveTCPAddr("tcp", fmt.Sprintf(":%d", port))
 
@@ -47,14 +48,14 @@ func StartServer(port int, masterId int) *rpc.Server {
 	return newServer
 }
 
-//returns the address of the current master replica
+// GetMaster returns the address of the current master replica
 func (s *Server) GetMaster(args *Null, reply *int) error {
-	//log.Printf("Master id %d", s.MasterId)
+	//TODO: If in recovery state, respond with error
 	*reply = s.MasterId
 	return nil
 }
 
-//processes an RPC call sent by client
+// RPCDB processes an RPC call sent by client
 func (s *Server) RPCDB(args *phatdb.DBCommand, reply *phatdb.DBResponse) error {
 	//if the server isn't the master, the respond with an error, and send over master's address
 	log.Printf("Master id: %d, My id: %d", s.MasterId, s.Id)
@@ -75,6 +76,7 @@ func (s *Server) RPCDB(args *phatdb.DBCommand, reply *phatdb.DBResponse) error {
 			log.Println("Finished write-only")
 			//paxos(args)
 		default:
+			//for reads we can go directly to the DB
 			log.Println("Read-only command skips Paxos")
 			s.InputChan <- argsWithChannel
 			result := <-argsWithChannel.Done
