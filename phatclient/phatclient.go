@@ -57,7 +57,7 @@ func NewClient(servers []string, id int) (*PhatClient, error) {
 	return c, nil
 }
 
-// Iterate throuhg all servers and attempt to connect to any one
+// Iterate through all servers and attempt to connect to any one
 func (c *PhatClient) connectToAnyServer() error {
 	for i := 0; i < len(c.ServerLocations); i++ {
 		client, err := rpc.Dial("tcp", c.ServerLocations[i])
@@ -71,7 +71,7 @@ func (c *PhatClient) connectToAnyServer() error {
 	return errors.New("Cannot connect to any server")
 }
 
-//connects to current Phat Master
+//  Connect to the current master node
 func (c *PhatClient) connectToMaster() error {
 	log.Println("Connecting to the master...")
 
@@ -132,7 +132,7 @@ func (c *PhatClient) GetData(subpath string) (*phatdb.DataNode, error) {
 
 func (c *PhatClient) SetData(subpath string, data string) error {
 	args := &phatdb.DBCommand{"SET", subpath, data}
-	reply, err := c.processCall(args)
+	_, err := c.processCall(args)
 	return err
 }
 
