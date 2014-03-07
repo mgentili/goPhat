@@ -20,7 +20,11 @@ type StartViewArgs struct {
 
 func logVCState(state string) {
 	log.Printf("Replica %d at state %s\n", rstate.ReplicaNumber, state)
-	log.Printf("StartViewChangeReplies: %d\n", vcstate.StartViewReplies)
+	log.Printf("StartViewChangeRepliesCount: %d\n", vcstate.StartViewReplies)
+	log.Printf("StartViewChangeRepliesIdxs: %d\n", vcstate.StartViewReplies)
+	log.Printf("DoViewChangeRepliesCount: %d\n", vcstate.StartViewReplies)
+	log.Printf("DoViewChangeRepliesIdxs: %d\n", vcstate.StartViewReplies)
+
 	log.Printf("---\n")
 }
 
@@ -97,6 +101,8 @@ func (t *Replica) DoViewChange(args *DoViewChangeArgs, reply *int) error {
 
 	//We have recived enough DoViewChange messages
 	if vcstate.DoViews == F+1 {
+		logVCState("PrepareStartView")
+
 		//TODO: implement
 		calcMasterView()
 
