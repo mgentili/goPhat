@@ -16,7 +16,7 @@ const (
 	MAX_RENEWAL = LEASE / 2
 )
 
-var clients [NREPLICAS]*rpc.Client
+var clients [NREPLICAS + 1]*rpc.Client
 
 var rstate ReplicaState
 var mstate MasterState
@@ -105,6 +105,11 @@ func addLog(command interface{}) {
 	phatlog = append(phatlog, command.(string))
 	log.Printf("replica %d logging\n", rstate.ReplicaNumber)
 	//    phatlog.add(command)
+}
+
+func (r *ReplicaState) Debug(format string, args ...interface{}) {
+	str := fmt.Sprintf("Replica %d: %s", r.ReplicaNumber, format)
+	log.Printf(str, args...)
 }
 
 func doCommit(cn uint) {
@@ -249,6 +254,7 @@ var hasInterconnect bool = false
 
 // sets up connections with all other replicas
 func InterconnectionInit() {
+	return
 	if hasInterconnect {
 		return
 	}
@@ -357,29 +363,65 @@ func handlePrepareOK(reply *PrepareReply) bool {
 	return true
 }
 
+func SendSync(repNum uint, msg string, args interface{}, reply interface{}) error {
+	if clients[repNum] == nil {
+		err := ClientConnect(repNum)
+		if err != nil {
+			return err
+		}
+	}
+	err := clients[repNum].Call(msg, args, reply)
+	return err
+}
+
+func ClientConnect(repNum uint) error {
+	assert(repNum != rstate.ReplicaNumber)
+	c, err := rpc.Dial("tcp", rstate.Config[repNum])
+
+	if err != nil {
+		rstate.Debug("error trying to connect to replica %d: %v", repNum, err)
+	} else {
+		clients[repNum] = c
+	}
+
+	return err
+}
+
 func sendAndRecv(N int, msg string, args interface{}, newReply func() interface{}, handler func(reply interface{}) bool) {
 
 	type ClientCall struct {
 		call *rpc.Call
 		// need to track which client so we can resend as needed
-		client *rpc.Client
+		repNum uint
 	}
 
 	callChan := make(chan ClientCall)
 
-	sendOne := func(client *rpc.Client) {
+	sendOne := func(repNum uint) {
+		if clients[repNum] == nil {
+			err := ClientConnect(repNum)
+			if err != nil {
+				return
+			}
+		}
+		client := clients[repNum]
 		call := client.Go(msg, args, newReply(), nil)
 		go func(c ClientCall) {
 			// wait for this call to complete
 			<-c.call.Done
 			// and now send it to the master channel
 			callChan <- c
-		}(ClientCall{call, client})
+		}(ClientCall{call, repNum})
 	}
 
 	// send requests to the replicas
-	for i := 0; i < N; i++ {
-		sendOne(clients[i])
+	i := 0
+	for j := uint(0); i < N && j < NREPLICAS+1; j++ {
+		if j == rstate.ReplicaNumber {
+			continue
+		}
+		sendOne(j)
+		i++
 	}
 
 	doneChan := make(chan int)
@@ -392,12 +434,15 @@ func sendAndRecv(N int, msg string, args interface{}, newReply func() interface{
 			call := clientCall.call
 			if call.Error != nil {
 				// for now just resend failed messages indefinitely
-				log.Printf("sendAndRecv message error: %v", call.Error)
-				//TEMP:
-				if call.Error.Error() == "connection is shut down" {
-					continue
+				log.Printf("sendAndRecv message error: %v, %T", call.Error)
+				if call.Error == rpc.ErrShutdown {
+					err := ClientConnect(clientCall.repNum)
+					if err != nil {
+						// for now, at least, we won't retry a second time if the connection is completely shutdown
+						continue
+					}
 				}
-				sendOne(clientCall.client)
+				sendOne(clientCall.repNum)
 				continue
 			}
 			if callHandler && handler(call.Reply) {
