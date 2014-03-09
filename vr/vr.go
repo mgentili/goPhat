@@ -225,7 +225,7 @@ func (r *Replica) ReplicaTimeout() {
 		// can't handle read requests anymore
 	}
 	r.Debug("Timed out, trying view change")
-//	r.PrepareViewChange()
+	r.PrepareViewChange()
 	// start counting again so we timeout if the new replica can't become master
 	r.Rstate.ExtendLease()
 }
@@ -371,6 +371,21 @@ func (r *Replica) ClientConnect(repNum uint) error {
 	return err
 }
 
+/* Sends RPC to N other replicas
+ * msg is the RPC call name
+ * args is the argument struct
+ * newReply is a constructor that returns a new object of the expected reply 
+   type. This is a bit of a wart of Go, because you can't really pass types
+   to a function, but we still need a way to keep making new reply objects
+ * handler is a function that will be called and passed the resulting reply 
+   for each reply that is received. It will be called until it returns true,
+   which signals that enough replies have been received that sendAndRecv
+   will return (e.g. a majority has been received).
+ * Note, however, that the RPCs will generally be re-sent until N responses
+ * are received, even when handler returns true. This is so all replicas
+ * do eventually get the message, even once a majority has been reached
+ * and other operations can continue
+ */
 func (r *Replica) sendAndRecv(N int, msg string, args interface{}, newReply func() interface{}, handler func(reply interface{}) bool) {
 
 	type ClientCall struct {
