@@ -4,7 +4,6 @@ import (
 	"log"
 )
 
-
 type StartViewChangeArgs struct {
 	View          uint
 	ReplicaNumber uint

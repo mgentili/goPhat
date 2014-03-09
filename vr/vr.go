@@ -25,17 +25,16 @@ const (
 
 type Command string
 
-type Replica struct{
-    Rstate ReplicaState
-    Mstate MasterState
-    Vcstate ViewChangeState
+type Replica struct {
+	Rstate  ReplicaState
+	Mstate  MasterState
+	Vcstate ViewChangeState
 	// list of replica addresses, in sorted order
-	Config []string
-    Clients [NREPLICAS + 1]*rpc.Client
-    //TEMP
-    Phatlog []string
+	Config  []string
+	Clients [NREPLICAS + 1]*rpc.Client
+	//TEMP
+	Phatlog []string
 }
-
 
 type ReplicaState struct {
 	View           uint
@@ -107,7 +106,7 @@ func wrongView() error {
 
 func (r *Replica) addLog(command interface{}) {
 	r.Phatlog = append(r.Phatlog, command.(string))
-    r.Debug("adding command to log")
+	r.Debug("adding command to log")
 	//    phatlog.add(command)
 }
 
@@ -186,8 +185,8 @@ func (r *Replica) IsMaster() bool {
 func (mstate *MasterState) Reset() {
 	mstate.A = 0
 	mstate.Replies = 0
-    mstate.Heartbeats = 0
-    mstate.HeartbeatReplies = 0
+	mstate.Heartbeats = 0
+	mstate.HeartbeatReplies = 0
 }
 
 func (mstate *MasterState) ExtendNeedsRenewal() {
@@ -195,7 +194,7 @@ func (mstate *MasterState) ExtendNeedsRenewal() {
 }
 
 func (r *Replica) Heartbeat(replica uint) {
-    assert(r.IsMaster())
+	assert(r.IsMaster())
 
 	if ((1 << replica) & r.Mstate.HeartbeatReplies) != 0 {
 		return
@@ -236,7 +235,7 @@ func (r *Replica) MasterNeedsRenewal() {
 }
 
 func RunAsReplica(i uint, config []string) {
-    r := new(Replica)
+	r := new(Replica)
 	r.Rstate.ReplicaNumber = i
 	r.Config = config
 
@@ -254,9 +253,9 @@ func RunAsReplica(i uint, config []string) {
 }
 
 func (r *Replica) MasterInit() {
-    assert(r.IsMaster())
+	assert(r.IsMaster())
 
-    r.Mstate.Reset()
+	r.Mstate.Reset()
 	r.Mstate.Timer = time.AfterFunc(MAX_RENEWAL, r.MasterNeedsRenewal)
 }
 
@@ -272,20 +271,20 @@ func (r *Replica) ReplicaInit() net.Listener {
 
 // TODO: might not need to do this, e.g. if we handle client and server rpcs all on the same port
 func (r *Replica) ReplicaRun(ln net.Listener) {
-    newServer := rpc.NewServer()
+	newServer := rpc.NewServer()
 
-    newServer.Register(r)
+	newServer.Register(r)
 
 	for {
-/*		c, err := ln.Accept()
-		if err != nil {
-			continue
-		}
+		/*		c, err := ln.Accept()
+				if err != nil {
+					continue
+				}
 
-		rpc.ServeConn(c)
-*/
-        newServer.Accept(ln)
-        r.Debug("finished an accept?")
+				rpc.ServeConn(c)
+		*/
+		newServer.Accept(ln)
+		r.Debug("finished an accept?")
 	}
 }
 
@@ -372,20 +371,20 @@ func (r *Replica) ClientConnect(repNum uint) error {
 }
 
 /* Sends RPC to N other replicas
- * msg is the RPC call name
- * args is the argument struct
- * newReply is a constructor that returns a new object of the expected reply 
-   type. This is a bit of a wart of Go, because you can't really pass types
-   to a function, but we still need a way to keep making new reply objects
- * handler is a function that will be called and passed the resulting reply 
-   for each reply that is received. It will be called until it returns true,
-   which signals that enough replies have been received that sendAndRecv
-   will return (e.g. a majority has been received).
- * Note, however, that the RPCs will generally be re-sent until N responses
- * are received, even when handler returns true. This is so all replicas
- * do eventually get the message, even once a majority has been reached
- * and other operations can continue
- */
+* msg is the RPC call name
+* args is the argument struct
+* newReply is a constructor that returns a new object of the expected reply
+  type. This is a bit of a wart of Go, because you can't really pass types
+  to a function, but we still need a way to keep making new reply objects
+* handler is a function that will be called and passed the resulting reply
+  for each reply that is received. It will be called until it returns true,
+  which signals that enough replies have been received that sendAndRecv
+  will return (e.g. a majority has been received).
+* Note, however, that the RPCs will generally be re-sent until N responses
+* are received, even when handler returns true. This is so all replicas
+* do eventually get the message, even once a majority has been reached
+* and other operations can continue
+*/
 func (r *Replica) sendAndRecv(N int, msg string, args interface{}, newReply func() interface{}, handler func(reply interface{}) bool) {
 
 	type ClientCall struct {
@@ -438,7 +437,7 @@ func (r *Replica) sendAndRecv(N int, msg string, args interface{}, newReply func
 					err := r.ClientConnect(clientCall.repNum)
 					if err != nil {
 						// for now, at least, we won't retry a second time if the connection is completely shutdown
-                        i++
+						i++
 						continue
 					}
 				}
