@@ -4,7 +4,6 @@ import (
 	"log"
 )
 
-var vcstate ViewChangeState
 
 type StartViewChangeArgs struct {
 	View          uint
@@ -18,97 +17,97 @@ type StartViewArgs struct {
 	CommitNumber uint
 }
 
-func logVCState(state string) {
-	log.Printf("Replica %d at state %s\n", rstate.ReplicaNumber, state)
-	log.Printf("StartViewChangeRepliesCount: %d\n", vcstate.StartViewReplies)
-	log.Printf("StartViewChangeRepliesIdxs: %d\n", vcstate.StartViewReplies)
-	log.Printf("DoViewChangeRepliesCount: %d\n", vcstate.StartViewReplies)
-	log.Printf("DoViewChangeRepliesIdxs: %d\n", vcstate.StartViewReplies)
+func (r *Replica) logVcstate(state string) {
+	log.Printf("Replica %d at state %s\n", r.Rstate.ReplicaNumber, state)
+	log.Printf("StartViewChangeRepliesCount: %d\n", r.Vcstate.StartViewReplies)
+	log.Printf("StartViewChangeRepliesIdxs: %d\n", r.Vcstate.StartViewReplies)
+	log.Printf("DoViewChangeRepliesCount: %d\n", r.Vcstate.StartViewReplies)
+	log.Printf("DoViewChangeRepliesIdxs: %d\n", r.Vcstate.StartViewReplies)
 
 	log.Printf("---\n")
 }
 
 //A replica notices that a viewchange is needed - starts off the messages
-func PrepareViewChange() {
-	logVCState("PrepareViewChange")
-	rstate.Status = ViewChange
-	rstate.View++
+func (r *Replica) PrepareViewChange() {
+	r.logVcstate("PrepareViewChange")
+	r.Rstate.Status = ViewChange
+	r.Rstate.View++
 
-	args := StartViewChangeArgs{rstate.View, rstate.ReplicaNumber}
+	args := StartViewChangeArgs{r.Rstate.View, r.Rstate.ReplicaNumber}
 
-	go sendAndRecv(NREPLICAS, "Replica.StartViewChange", args,
+	go r.sendAndRecv(NREPLICAS, "Replica.StartViewChange", args,
 		func() interface{} { return nil },
 		func(r interface{}) bool { return false })
 
 }
 
 //viewchange RPCs
-func (t *Replica) StartViewChange(args *StartViewChangeArgs, reply *int) error {
-	logVCState("StartViewChange")
+func (r *Replica) StartViewChange(args *StartViewChangeArgs, reply *int) error {
+	r.logVcstate("StartViewChange")
 
 	//This view is already ahead of the proposed one
-	if rstate.View > args.View {
+	if r.Rstate.View > args.View {
 		return nil
 	}
 
 	//already recieved a message from this replica
-	if ((1 << args.ReplicaNumber) & vcstate.StartViewReplies) != 0 {
+	if ((1 << args.ReplicaNumber) & r.Vcstate.StartViewReplies) != 0 {
 		return nil
 	}
 
-	vcstate.StartViewReplies |= 1 << args.ReplicaNumber
-	vcstate.StartViews++
+	r.Vcstate.StartViewReplies |= 1 << args.ReplicaNumber
+	r.Vcstate.StartViews++
 
 	//first time we have seen this viewchange message
-	if rstate.View < args.View {
-		vcstate.NormalView = rstate.View //last known normal View
-		rstate.View = args.View
-		rstate.Status = ViewChange
+	if r.Rstate.View < args.View {
+		r.Vcstate.NormalView = r.Rstate.View //last known normal View
+		r.Rstate.View = args.View
+		r.Rstate.Status = ViewChange
 
-		SVCargs := StartViewChangeArgs{rstate.View, rstate.ReplicaNumber}
+		SVCargs := StartViewChangeArgs{r.Rstate.View, r.Rstate.ReplicaNumber}
 
 		//send StartViewChange messages to all replicas
-		go sendAndRecv(NREPLICAS, "Replica.StartViewChange", SVCargs,
+		go r.sendAndRecv(NREPLICAS, "Replica.StartViewChange", SVCargs,
 			func() interface{} { return nil },
 			func(r interface{}) bool { return false })
 	}
 
-	if vcstate.StartViews == F {
-		logVCState("Sending DoViewChange")
+	if r.Vcstate.StartViews == F {
+		r.logVcstate("Sending DoViewChange")
 
-		DVCargs := DoViewChangeArgs{rstate.View, rstate.ReplicaNumber, phatlog, vcstate.NormalView, rstate.OpNumber, rstate.CommitNumber}
+		DVCargs := DoViewChangeArgs{r.Rstate.View, r.Rstate.ReplicaNumber, r.Phatlog, r.Vcstate.NormalView, r.Rstate.OpNumber, r.Rstate.CommitNumber}
 
 		// only send DoViewChange if we're not the new master (can't actually send a message to ourself)
-		if !rstate.IsMaster() {
-			clients[rstate.View%(NREPLICAS+1)].Call("Replica.DoViewChange", DVCargs, nil)
+		if !r.IsMaster() {
+			r.Clients[r.Rstate.View%(NREPLICAS+1)].Call("Replica.DoViewChange", DVCargs, nil)
 		}
 	}
 
 	return nil
 }
 
-func (t *Replica) DoViewChange(args *DoViewChangeArgs, reply *int) error {
-	logVCState("DoViewChange")
+func (r *Replica) DoViewChange(args *DoViewChangeArgs, reply *int) error {
+	r.logVcstate("DoViewChange")
 
 	//already recieved a message from this replica
-	if ((1 << args.ReplicaNumber) & vcstate.DoViewReplies) != 0 {
+	if ((1 << args.ReplicaNumber) & r.Vcstate.DoViewReplies) != 0 {
 		return nil
 	}
 
-	vcstate.DoViewReplies |= 1 << args.ReplicaNumber
-	vcstate.DoViews++
-	vcstate.DoViewChangeMsgs[args.ReplicaNumber] = *args
+	r.Vcstate.DoViewReplies |= 1 << args.ReplicaNumber
+	r.Vcstate.DoViews++
+	r.Vcstate.DoViewChangeMsgs[args.ReplicaNumber] = *args
 
 	//We have recived enough DoViewChange messages
-	if vcstate.DoViews == F+1 {
-		logVCState("PrepareStartView")
+	if r.Vcstate.DoViews == F+1 {
+		r.logVcstate("PrepareStartView")
 
 		//TODO: implement
-		calcMasterView()
+		r.calcMasterView()
 
 		//send the StartView messages to all replicas
-		SVargs := StartViewArgs{rstate.View, phatlog, rstate.OpNumber, rstate.CommitNumber}
-		sendAndRecv(NREPLICAS, "Replica.StartView", SVargs,
+		SVargs := StartViewArgs{r.Rstate.View, r.Phatlog, r.Rstate.OpNumber, r.Rstate.CommitNumber}
+		r.sendAndRecv(NREPLICAS, "Replica.StartView", SVargs,
 			func() interface{} { return nil },
 			func(r interface{}) bool { return false })
 
@@ -116,22 +115,22 @@ func (t *Replica) DoViewChange(args *DoViewChangeArgs, reply *int) error {
 	return nil
 }
 
-func (t *Replica) StartView(args *DoViewChangeArgs, reply *int) error {
-	logVCState("StartView")
+func (r *Replica) StartView(args *DoViewChangeArgs, reply *int) error {
+	r.logVcstate("StartView")
 
-	phatlog = args.Log
-	rstate.OpNumber = args.OpNumber
-	rstate.CommitNumber = args.CommitNumber
+	r.Phatlog = args.Log
+	r.Rstate.OpNumber = args.OpNumber
+	r.Rstate.CommitNumber = args.CommitNumber
 
 	return nil
 }
 
-func calcMasterView() {
-	rstate.View = vcstate.DoViewChangeMsgs[0].View
+func (r *Replica) calcMasterView() {
+	r.Rstate.View = r.Vcstate.DoViewChangeMsgs[0].View
 
 	/*
 	   for i  := 0; i < NREPLICAS+1; i++ {
-	       if i != rstate.ReplicaNumber {
+	       if i != r.Rstate.ReplicaNumber {
 
 	       }
 	   }

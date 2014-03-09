@@ -28,6 +28,7 @@ type Command string
 type Replica struct{
     Rstate ReplicaState
     Mstate MasterState
+    Vcstate ViewChangeState
 	// list of replica addresses, in sorted order
 	Config []string
     Clients [NREPLICAS + 1]*rpc.Client
