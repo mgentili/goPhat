@@ -36,6 +36,13 @@ type Replica struct {
 	Phatlog []string
 }
 
+/* special object just for RPC calls, so that other methods
+ * can take a Replica object and not be considered RPCs
+ */
+type RPCReplica struct {
+	R *Replica
+}
+
 type ReplicaState struct {
 	View           uint
 	OpNumber       uint
@@ -135,7 +142,8 @@ func (r *Replica) doCommit(cn uint) {
 }
 
 // RPCs
-func (r *Replica) Prepare(args *PrepareArgs, reply *PrepareReply) error {
+func (t *RPCReplica) Prepare(args *PrepareArgs, reply *PrepareReply) error {
+	r := t.R
 	r.Debug("Got prepare %d\n", args.OpNumber)
 
 	if args.View != r.Rstate.View {
@@ -164,7 +172,8 @@ func (r *Replica) Prepare(args *PrepareArgs, reply *PrepareReply) error {
 	return nil
 }
 
-func (r *Replica) Commit(args *CommitArgs, reply *uint) error {
+func (t *RPCReplica) Commit(args *CommitArgs, reply *uint) error {
+	r := t.R
 	if args.View != r.Rstate.View {
 		return wrongView()
 	}
@@ -273,19 +282,11 @@ func (r *Replica) ReplicaInit() net.Listener {
 func (r *Replica) ReplicaRun(ln net.Listener) {
 	newServer := rpc.NewServer()
 
-	newServer.Register(r)
+	rpcreplica := new(RPCReplica)
+	rpcreplica.R = r
+	newServer.Register(rpcreplica)
 
-	for {
-		/*		c, err := ln.Accept()
-				if err != nil {
-					continue
-				}
-
-				rpc.ServeConn(c)
-		*/
-		newServer.Accept(ln)
-		r.Debug("finished an accept?")
-	}
+	newServer.Accept(ln)
 }
 
 func (r *Replica) RunVR(command interface{}) {
@@ -301,7 +302,7 @@ func (r *Replica) RunVR(command interface{}) {
 
 	args := PrepareArgs{r.Rstate.View, command, r.Rstate.OpNumber, r.Rstate.CommitNumber}
 	replyConstructor := func() interface{} { return new(PrepareReply) }
-	r.sendAndRecv(NREPLICAS, "Replica.Prepare", args, replyConstructor, func(reply interface{}) bool {
+	r.sendAndRecv(NREPLICAS, "RPCReplica.Prepare", args, replyConstructor, func(reply interface{}) bool {
 		return r.handlePrepareOK(reply.(*PrepareReply))
 	})
 }
@@ -339,7 +340,7 @@ func (r *Replica) handlePrepareOK(reply *PrepareReply) bool {
 
 	args := CommitArgs{r.Rstate.View, r.Rstate.CommitNumber}
 	// TODO: technically only need to do this when we don't get another request from the client for a while
-	go r.sendAndRecv(NREPLICAS, "Replica.Commit", args,
+	go r.sendAndRecv(NREPLICAS, "RPCReplica.Commit", args,
 		func() interface{} { return new(uint) },
 		func(reply interface{}) bool { r.Heartbeat(*(reply.(*uint))); return false })
 

@@ -34,14 +34,15 @@ func (r *Replica) PrepareViewChange() {
 
 	args := StartViewChangeArgs{r.Rstate.View, r.Rstate.ReplicaNumber}
 
-	go r.sendAndRecv(NREPLICAS, "Replica.StartViewChange", args,
+	go r.sendAndRecv(NREPLICAS, "RPCReplica.StartViewChange", args,
 		func() interface{} { return nil },
 		func(r interface{}) bool { return false })
 
 }
 
 //viewchange RPCs
-func (r *Replica) StartViewChange(args *StartViewChangeArgs, reply *int) error {
+func (t *RPCReplica) StartViewChange(args *StartViewChangeArgs, reply *int) error {
+	r := t.R
 	r.logVcstate("StartViewChange")
 
 	//This view is already ahead of the proposed one
@@ -66,7 +67,7 @@ func (r *Replica) StartViewChange(args *StartViewChangeArgs, reply *int) error {
 		SVCargs := StartViewChangeArgs{r.Rstate.View, r.Rstate.ReplicaNumber}
 
 		//send StartViewChange messages to all replicas
-		go r.sendAndRecv(NREPLICAS, "Replica.StartViewChange", SVCargs,
+		go r.sendAndRecv(NREPLICAS, "RPCReplica.StartViewChange", SVCargs,
 			func() interface{} { return nil },
 			func(r interface{}) bool { return false })
 	}
@@ -78,14 +79,15 @@ func (r *Replica) StartViewChange(args *StartViewChangeArgs, reply *int) error {
 
 		// only send DoViewChange if we're not the new master (can't actually send a message to ourself)
 		if !r.IsMaster() {
-			r.Clients[r.Rstate.View%(NREPLICAS+1)].Call("Replica.DoViewChange", DVCargs, nil)
+			r.Clients[r.Rstate.View%(NREPLICAS+1)].Call("RPCReplica.DoViewChange", DVCargs, nil)
 		}
 	}
 
 	return nil
 }
 
-func (r *Replica) DoViewChange(args *DoViewChangeArgs, reply *int) error {
+func (t *RPCReplica) DoViewChange(args *DoViewChangeArgs, reply *int) error {
+	r := t.R
 	r.logVcstate("DoViewChange")
 
 	//already recieved a message from this replica
@@ -106,7 +108,7 @@ func (r *Replica) DoViewChange(args *DoViewChangeArgs, reply *int) error {
 
 		//send the StartView messages to all replicas
 		SVargs := StartViewArgs{r.Rstate.View, r.Phatlog, r.Rstate.OpNumber, r.Rstate.CommitNumber}
-		r.sendAndRecv(NREPLICAS, "Replica.StartView", SVargs,
+		r.sendAndRecv(NREPLICAS, "RPCReplica.StartView", SVargs,
 			func() interface{} { return nil },
 			func(r interface{}) bool { return false })
 
@@ -114,7 +116,8 @@ func (r *Replica) DoViewChange(args *DoViewChangeArgs, reply *int) error {
 	return nil
 }
 
-func (r *Replica) StartView(args *DoViewChangeArgs, reply *int) error {
+func (t *RPCReplica) StartView(args *DoViewChangeArgs, reply *int) error {
+	r := t.R
 	r.logVcstate("StartView")
 
 	r.Phatlog = args.Log
