@@ -49,7 +49,8 @@ func main() {
 		}
 	} else {
 		ind := *indP
-		vr.RunAsReplica(ind, config)
+		r := vr.RunAsReplica(ind, config)
+		RunTest(r)
 	}
 	<-make(chan int)
 }

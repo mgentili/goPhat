@@ -13,7 +13,7 @@ import (
 const (
 	F           = 1
 	NREPLICAS   = 2 * F // doesn't count the master as a replica
-	LEASE       = 5000 * time.Millisecond
+	LEASE       = 2000 * time.Millisecond
 	MAX_RENEWAL = LEASE / 2
 )
 
@@ -155,12 +155,12 @@ func (t *RPCReplica) Prepare(args *PrepareArgs, reply *PrepareReply) error {
 		return wrongView()
 	}
 
-	r.Rstate.ExtendLease() // TODO: do we extend lease in non-normal mode??
-
 	if r.Rstate.Status != Normal {
 		// TODO: ideally we should just not respond or something in this case
 		return errors.New("not in normal mode")
 	}
+
+	r.Rstate.ExtendLease() // TODO: do we extend lease in non-normal mode??
 
 	if args.OpNumber != r.Rstate.OpNumber+1 {
 		// TODO: we should probably sleep or something til this is true??
@@ -314,7 +314,6 @@ func (r *Replica) ReplicaInit() {
 	r.Mstate.Timer.Stop()
 }
 
-// TODO: might not need to do this, e.g. if we handle client and server rpcs all on the same port
 func (r *Replica) ReplicaRun() {
 	newServer := rpc.NewServer()
 
@@ -388,7 +387,7 @@ func (r *Replica) handlePrepareOK(reply *PrepareReply) bool {
 	return true
 }
 
-// TODO: the only play this is currently used is to send a DoViewChange to the new master.
+// TODO: the only place this is currently used is to send a DoViewChange to the new master.
 // in reality that message should probably be a .Go call, that runs in the background resending
 // until the message is received (basically like sendAndRecv but for only one specific replica)
 func (r *Replica) SendSync(repNum uint, msg string, args interface{}, reply interface{}) error {
