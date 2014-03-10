@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"net/rpc"
+	"runtime"
 	"time"
 )
 
@@ -105,7 +106,8 @@ type CommitArgs struct {
 // Go doesn't have assertions...
 func assert(b bool) {
 	if !b {
-		log.Fatal("assertion failed")
+		_, file, line, _ := runtime.Caller(1)
+		log.Fatalf("assertion failed: %s:%d", file, line)
 	}
 }
 
@@ -139,6 +141,7 @@ func (r *Replica) doCommit(cn uint) {
 			r.doCommit(i)
 		}
 	}
+	r.Debug("commiting %d", r.Rstate.CommitNumber+1)
 	//db.Commit()
 	r.Rstate.CommitNumber++
 }
@@ -152,7 +155,7 @@ func (t *RPCReplica) Prepare(args *PrepareArgs, reply *PrepareReply) error {
 		return wrongView()
 	}
 
-	r.Rstate.ExtendLease() // do we extend lease in non-normal mode??
+	r.Rstate.ExtendLease() // TODO: do we extend lease in non-normal mode??
 
 	if r.Rstate.Status != Normal {
 		// TODO: ideally we should just not respond or something in this case
@@ -166,6 +169,10 @@ func (t *RPCReplica) Prepare(args *PrepareArgs, reply *PrepareReply) error {
 
 	r.Rstate.OpNumber++
 	r.addLog(args.Command)
+
+	// commit the last thing if necessary (this reduces the number of actual
+	// commit messages that need to be sent)
+	r.doCommit(args.CommitNumber)
 
 	reply.View = r.Rstate.View
 	reply.OpNumber = r.Rstate.OpNumber
@@ -382,6 +389,7 @@ func (r *Replica) handlePrepareOK(reply *PrepareReply) bool {
 	// we've now gotten a majority
 	r.doCommit(r.Rstate.CommitNumber + 1)
 
+	// TODO: we shouldn't really need to do this (only on periods of inactivity)
 	r.sendCommitMsgs()
 
 	return true
