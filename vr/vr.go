@@ -256,8 +256,14 @@ func (r *Replica) ReplicaTimeout() {
 }
 
 func (r *Replica) MasterNeedsRenewal() {
-	// TODO: we've been inactive for MAX_RENEWAL time, so we need to
-	// send explicit commits to renew lease
+	r.sendCommitMsgs()
+}
+
+func (r *Replica) sendCommitMsgs() {
+	args := CommitArgs{r.Rstate.View, r.Rstate.CommitNumber}
+	go r.sendAndRecv(NREPLICAS, "RPCReplica.Commit", args,
+		func() interface{} { return new(uint) },
+		func(reply interface{}) bool { r.Heartbeat(*(reply.(*uint))); return false })
 }
 
 func RunAsReplica(i uint, config []string) *Replica {
@@ -376,11 +382,7 @@ func (r *Replica) handlePrepareOK(reply *PrepareReply) bool {
 	// we've now gotten a majority
 	r.doCommit(r.Rstate.CommitNumber + 1)
 
-	args := CommitArgs{r.Rstate.View, r.Rstate.CommitNumber}
-	// TODO: technically only need to do this when we don't get another request from the client for a while
-	go r.sendAndRecv(NREPLICAS, "RPCReplica.Commit", args,
-		func() interface{} { return new(uint) },
-		func(reply interface{}) bool { r.Heartbeat(*(reply.(*uint))); return false })
+	r.sendCommitMsgs()
 
 	return true
 }
