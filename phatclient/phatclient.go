@@ -7,14 +7,17 @@ import (
 	"log"
 	"net/rpc"
 	"time"
+	"os"
 )
 
 const (
 	DefaultTimeout = time.Duration(1) * time.Second
 )
 
+var client_log *log.Logger 
+
 func StringToError(s string) error {
-	log.Println("Convert to err:", s)
+	client_log.Println("Convert to err:", s)
 	if s == "" {
 		return nil
 	}
@@ -25,9 +28,9 @@ type PhatClient struct {
 	Cache           map[string]string //all data that client has entered
 	Timeout         time.Duration
 	ServerLocations []string    //addresses of all servers
-	NumServers      int         //length of ServerLocations
-	MasterId        int         //id of master server
-	Id              int         //id of currently connected server
+	NumServers      uint         //length of ServerLocations
+	MasterId        uint         //id of master server
+	Id              uint         //id of currently connected server
 	RpcClient       *rpc.Client //client connection to server (usually the master)
 	invalidateChan  chan string //channel that client listens to for cache invalidation
 }
@@ -36,19 +39,22 @@ type Null struct{}
 
 // NewClient creates a new client connected to the server with given id
 // and attempts to connect to the master server
-func NewClient(servers []string, id int) (*PhatClient, error) {
+func NewClient(servers []string, id uint) (*PhatClient, error) {
+	if client_log == nil {
+		client_log = log.New(os.Stdout, "CLIENT: ", log.Ltime|log.Lmicroseconds)
+	}
 	c := new(PhatClient)
 
 	// We need to register the DataNode and StatNode before we can use them in gob
 	gob.Register(phatdb.DataNode{})
 	gob.Register(phatdb.StatNode{})
 	c.ServerLocations = servers
-	c.NumServers = len(servers)
+	c.NumServers = uint(len(servers))
 	c.Id = id
 
 	err := c.connectToServer(id)
 	if err != nil {
-		log.Printf("NewClient failed to connect client to given server")
+		c.Debug("NewClient failed to connect client to server with id %d, error %s", id, err.Error())
 		return nil, err
 	}
 
@@ -56,14 +62,19 @@ func NewClient(servers []string, id int) (*PhatClient, error) {
 
 	err = c.connectToMaster()
 	if err != nil {
+		c.Debug("NewClient failed to connect client to the master server, error %s", err.Error())
 		return c, err
 	}
 
 	return c, nil
 }
 
+func (c *PhatClient) Debug(format string, args ...interface{}) {
+	client_log.Printf(format, args...)
+}
+
 // connectToAnyServer connects client to server with given index
-func (c *PhatClient) connectToServer(index int) error {
+func (c *PhatClient) connectToServer(index uint) error {
 	client, err := rpc.Dial("tcp", c.ServerLocations[index])
 	if err == nil {
 		c.Id = index
@@ -75,21 +86,24 @@ func (c *PhatClient) connectToServer(index int) error {
 
 // connectToMaster connects client to the current master node
 func (c *PhatClient) connectToMaster() error {
-	log.Println("Connecting to the master...")
+	c.Debug("Connecting to the master...%d", c.MasterId)
 
 	//connect to any server, and get the master id
-	for i := 0; i < c.NumServers; i = i + 1 {
+	for i := uint(0); i < c.NumServers; i = i + 1 {
 		err := c.RpcClient.Call("Server.GetMaster", new(Null), &c.MasterId)
 		if err == nil {
+			c.Debug("The master is %d", c.MasterId)
 			break
+		} else {
+			c.Debug("Errored when calling get master %v", err)
 		}
 		//if problem with RPC or server is in recovery, need to connect to different server
-		c.connectToServer((c.Id + i + 1) % c.NumServers)
+		c.connectToServer((c.Id + uint(i + 1)) % c.NumServers)
 	}
 
 	// If the currently connected server isn't the master, connect to master
 	if c.MasterId != c.Id {
-		log.Printf("Called Server.GetMaster, current master id is %d, my id is %d",
+		c.Debug("Called Server.GetMaster, current master id is %d, my id is %d",
 			c.MasterId, c.Id)
 		client, err := rpc.Dial("tcp", c.ServerLocations[c.MasterId])
 		if err != nil {
@@ -98,7 +112,7 @@ func (c *PhatClient) connectToMaster() error {
 		c.RpcClient.Close()
 		c.RpcClient = client
 		c.Id = c.MasterId
-		log.Printf("Now current master id is %d, my id is %d\n", c.MasterId, c.Id)
+		c.Debug("Now current master id is %d, my id is %d\n", c.MasterId, c.Id)
 	}
 
 	return nil
@@ -123,14 +137,16 @@ func (c *PhatClient) processCallWithRetry(args *phatdb.DBCommand) (*phatdb.DBRes
 		case <-timeout:
 			return nil, errors.New("Timed out")
 		case <-dbCall.Done:
-			replyErr = StringToError(reply.Error)
 			if dbCall.Error == nil {
-				if replyErr == nil {
-					return reply, replyErr
-				} else {
+				c.Debug("Call done with no error %s", "yay")
+				replyErr = StringToError(reply.Error)
+				if replyErr != nil {
 					return nil, replyErr
 				}
+				return reply, replyErr
 			}
+			c.Debug("Call somehow failed with error %v", dbCall.Error)
+			time.Sleep(DefaultTimeout/10)
 			//error possibilities 1) network failure 2) server can't process request
 			c.connectToMaster()
 		}
@@ -192,5 +208,6 @@ func (c *PhatClient) GetStats(subpath string) (*phatdb.StatNode, error) {
 	if err != nil {
 		return nil, err
 	}
-	return reply.Reply.(*phatdb.StatNode), err
+	n := reply.Reply.(phatdb.StatNode)
+	return &n, err
 }
