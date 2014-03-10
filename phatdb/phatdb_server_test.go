@@ -39,4 +39,20 @@ func TestDatabaseServer(t *testing.T) {
 		t.Errorf("SET fails")
 	}
 	//
+	for _, path := range []string{"/dev/nulled", "/dev/random", "/dev/urandom"} {
+		setCmd = DBCommandWithChannel{&DBCommand{"CREATE", path, "nullify"}, make(chan *DBResponse)}
+		input <- setCmd
+		if resp := <-setCmd.Done; resp.Error != "" {
+			t.Errorf("SET fails with %s", resp.Error)
+		}
+	}
+	// Check get children
+	for _, path := range []string{"/dev", "/dev/"} {
+		childrenCmd := DBCommandWithChannel{&DBCommand{"CHILDREN", path, ""}, make(chan *DBResponse)}
+		input <- childrenCmd
+		expected := []string{"null", "nulled", "random", "urandom"}
+		if resp := <-childrenCmd.Done; !areEqual(expected, resp.Reply.([]string)) || resp.Error != "" {
+			t.Errorf("CHILDREN fails: expected %s, received %s (err: %s)", expected, resp.Reply.([]string), resp.Error)
+		}
+	}
 }
