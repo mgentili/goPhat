@@ -385,6 +385,9 @@ func (r *Replica) handlePrepareOK(reply *PrepareReply) bool {
 	return true
 }
 
+// TODO: the only play this is currently used is to send a DoViewChange to the new master.
+// in reality that message should probably be a .Go call, that runs in the background resending
+// until the message is received (basically like sendAndRecv but for only one specific replica)
 func (r *Replica) SendSync(repNum uint, msg string, args interface{}, reply interface{}) error {
 	if r.Clients[repNum] == nil {
 		err := r.ClientConnect(repNum)

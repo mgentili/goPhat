@@ -84,7 +84,7 @@ func (t *RPCReplica) StartViewChange(args *StartViewChangeArgs, reply *int) erro
 		if !r.IsMaster() {
 			r.logVcstate("Sending DoViewChange")
 			log.Printf("Sending to: %d\n", r.Rstate.View%(NREPLICAS+1))
-			r.Clients[r.Rstate.View%(NREPLICAS+1)].Call("RPCReplica.DoViewChange", DVCargs, nil)
+			r.SendSync(r.Rstate.View%(NREPLICAS+1), "RPCReplica.DoViewChange", DVCargs, nil)
 		}
 	}
 
