@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"goPhat/vr"
+	"time"
 )
 
 var config = []string{"127.0.0.1:9000", "127.0.0.1:9001", "127.0.0.1:9002"}
@@ -15,8 +16,20 @@ func main() {
 	flag.Parse()
 
 	if *oneProcP {
+		var reps [N]*vr.Replica
 		for ind := N - 1; ind >= 0; ind-- {
-			go vr.RunAsReplica(uint(ind), config)
+			reps[ind] = vr.RunAsReplica(uint(ind), config)
+		}
+		time.Sleep(1000 * time.Millisecond)
+		shutdownRep := uint(1)
+		reps[shutdownRep].Shutdown()
+		// even though we closed our listener, other replicas may still
+		// have their old connection to us open, so close those too
+		for i := 0; i < N; i++ {
+			if uint(i) == shutdownRep {
+				continue
+			}
+			reps[i].DestroyConns(shutdownRep)
 		}
 	} else {
 		ind := *indP

@@ -33,7 +33,9 @@ type Replica struct {
 	Config  []string
 	Clients [NREPLICAS + 1]*rpc.Client
 	//TEMP
-	Phatlog []string
+	Phatlog    []string
+	Listener   net.Listener
+	IsShutdown bool
 }
 
 /* special object just for RPC calls, so that other methods
@@ -202,6 +204,21 @@ func (mstate *MasterState) ExtendNeedsRenewal() {
 	mstate.Timer.Reset(MAX_RENEWAL)
 }
 
+func (r *Replica) Shutdown() {
+	r.Listener.Close()
+	r.Rstate.Timer.Stop()
+	r.Mstate.Timer.Stop()
+	r.Mstate.Reset()
+	r.IsShutdown = true
+}
+
+// closes connection to the given replica number
+func (r *Replica) DestroyConns(repNum uint) {
+	if r.Clients[repNum] != nil {
+		r.Clients[repNum].Close()
+	}
+}
+
 func (r *Replica) Heartbeat(replica uint) {
 	assert(r.IsMaster())
 
@@ -243,50 +260,70 @@ func (r *Replica) MasterNeedsRenewal() {
 	// send explicit commits to renew lease
 }
 
-func RunAsReplica(i uint, config []string) {
+func RunAsReplica(i uint, config []string) *Replica {
 	r := new(Replica)
 	r.Rstate.ReplicaNumber = i
 	r.Config = config
 
-	ln := r.ReplicaInit()
+	r.ReplicaInit()
 
-	go r.ReplicaRun(ln)
+	go r.ReplicaRun()
 	if r.IsMaster() {
-		r.MasterInit()
-		for {
-			r.RunVR("foo")
-			r.RunVR("bar")
-			time.Sleep(10 * time.Millisecond)
-		}
+		r.BecomeMaster()
+		go func() {
+			for {
+				if r.IsShutdown {
+					time.Sleep(100 * time.Millisecond)
+					continue
+				}
+				r.RunVR("foo")
+				r.RunVR("bar")
+				time.Sleep(10 * time.Millisecond)
+			}
+		}()
 	}
+	return r
 }
 
-func (r *Replica) MasterInit() {
+func (r *Replica) BecomeMaster() {
 	assert(r.IsMaster())
-
+	// TODO: anything else we need to do to become the master?
 	r.Mstate.Reset()
-	r.Mstate.Timer = time.AfterFunc(MAX_RENEWAL, r.MasterNeedsRenewal)
+	// resets master's timer
+	r.Mstate.ExtendNeedsRenewal()
 }
 
-func (r *Replica) ReplicaInit() net.Listener {
+func (r *Replica) ReplicaInit() {
 	ln, err := net.Listen("tcp", r.Config[r.Rstate.ReplicaNumber])
 	if err != nil {
-		fmt.Println(err)
-		return nil
+		r.Debug("Couldn't start a listener: %v", err)
+		return
 	}
+	r.Listener = ln
 	r.Rstate.Timer = time.AfterFunc(LEASE, r.ReplicaTimeout)
-	return ln
+	// set up master time even as a replica, so that if we do become master
+	// the timer object already exists
+	r.Mstate.Timer = time.AfterFunc(MAX_RENEWAL, r.MasterNeedsRenewal)
+	r.Mstate.Timer.Stop()
 }
 
 // TODO: might not need to do this, e.g. if we handle client and server rpcs all on the same port
-func (r *Replica) ReplicaRun(ln net.Listener) {
+func (r *Replica) ReplicaRun() {
 	newServer := rpc.NewServer()
 
 	rpcreplica := new(RPCReplica)
 	rpcreplica.R = r
 	newServer.Register(rpcreplica)
 
-	newServer.Accept(ln)
+	for {
+		conn, err := r.Listener.Accept()
+		if err != nil {
+			r.Debug("err: %v", err)
+			time.Sleep(10000 * time.Millisecond)
+			continue
+		}
+		go newServer.ServeConn(conn)
+	}
 }
 
 func (r *Replica) RunVR(command interface{}) {
