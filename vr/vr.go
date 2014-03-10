@@ -254,7 +254,7 @@ func (rstate *ReplicaState) ExtendLease() {
 func (r *Replica) ReplicaTimeout() {
 	if r.IsMaster() {
 		r.Debug("we couldn't stay master :(,ViewNum:%d\n", r.Rstate.View)
-		// can't handle read requests anymore
+		// TODO: can't handle read requests anymore
 	}
 	r.Debug("Timed out, trying view change")
 	r.PrepareViewChange()
@@ -263,6 +263,9 @@ func (r *Replica) ReplicaTimeout() {
 }
 
 func (r *Replica) MasterNeedsRenewal() {
+	if r.IsShutdown {
+		return
+	}
 	r.sendCommitMsgs()
 }
 
@@ -284,17 +287,7 @@ func RunAsReplica(i uint, config []string) *Replica {
 	if r.IsMaster() {
 		r.BecomeMaster()
 	}
-	go func() {
-		for {
-			if r.IsShutdown || !r.IsMaster() {
-				time.Sleep(100 * time.Millisecond)
-				continue
-			}
-			r.RunVR("foo")
-			r.RunVR("bar")
-			time.Sleep(10 * time.Millisecond)
-		}
-	}()
+
 	return r
 }
 
