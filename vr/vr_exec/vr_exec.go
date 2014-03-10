@@ -21,7 +21,7 @@ func main() {
 			reps[ind] = vr.RunAsReplica(uint(ind), config)
 		}
 		time.Sleep(1000 * time.Millisecond)
-		shutdownRep := uint(1)
+		shutdownRep := uint(0)
 		reps[shutdownRep].Shutdown()
 		// even though we closed our listener, other replicas may still
 		// have their old connection to us open, so close those too

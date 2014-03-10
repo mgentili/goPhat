@@ -111,14 +111,14 @@ func (t *RPCReplica) DoViewChange(args *DoViewChangeArgs, reply *int) error {
 		//updates replica state based on replies
 		r.calcMasterView()
 
-		//if I move this below the RPC it does not seem to work - any idea?
 		r.Rstate.Status = Normal
 		r.replicaStateInfo()
+		r.BecomeMaster()
 		r.logVcstate("ViewChangeComplete!")
 
 		//send the StartView messages to all replicas
 		SVargs := StartViewArgs{r.Rstate.View, r.Phatlog, r.Rstate.OpNumber, r.Rstate.CommitNumber}
-		r.sendAndRecv(NREPLICAS, "RPCReplica.StartView", SVargs,
+		go r.sendAndRecv(NREPLICAS, "RPCReplica.StartView", SVargs,
 			func() interface{} { return nil },
 			func(r interface{}) bool { return false })
 
@@ -134,6 +134,7 @@ func (t *RPCReplica) StartView(args *DoViewChangeArgs, reply *int) error {
 	r.Rstate.OpNumber = args.OpNumber
 	r.Rstate.CommitNumber = args.CommitNumber
 	r.Rstate.Status = Normal
+	r.Rstate.ExtendLease()
 
 	r.replicaStateInfo()
 	r.logVcstate("ViewChangeComplete!")

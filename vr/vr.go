@@ -270,18 +270,18 @@ func RunAsReplica(i uint, config []string) *Replica {
 	go r.ReplicaRun()
 	if r.IsMaster() {
 		r.BecomeMaster()
-		go func() {
-			for {
-				if r.IsShutdown {
-					time.Sleep(100 * time.Millisecond)
-					continue
-				}
-				r.RunVR("foo")
-				r.RunVR("bar")
-				time.Sleep(10 * time.Millisecond)
-			}
-		}()
 	}
+	go func() {
+		for {
+			if r.IsShutdown || !r.IsMaster() {
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+			r.RunVR("foo")
+			r.RunVR("bar")
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
 	return r
 }
 
@@ -291,6 +291,7 @@ func (r *Replica) BecomeMaster() {
 	r.Mstate.Reset()
 	// resets master's timer
 	r.Mstate.ExtendNeedsRenewal()
+	r.Rstate.ExtendLease()
 }
 
 func (r *Replica) ReplicaInit() {
@@ -491,6 +492,10 @@ func (r *Replica) sendAndRecv(N int, msg string, args interface{}, newReply func
 			}
 
 			i++
+		}
+		// handler never returned true, but we've sent all the messages we needed to, so can fully exit
+		if callHandler {
+			doneChan <- 0
 		}
 	}()
 
