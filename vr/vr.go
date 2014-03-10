@@ -246,7 +246,7 @@ func (rstate *ReplicaState) ExtendLease() {
 
 func (r *Replica) ReplicaTimeout() {
 	if r.IsMaster() {
-		r.Debug("we couldn't stay master :(\n")
+		r.Debug("we couldn't stay master :(,ViewNum:%d\n", r.Rstate.View)
 		// can't handle read requests anymore
 	}
 	r.Debug("Timed out, trying view change")
