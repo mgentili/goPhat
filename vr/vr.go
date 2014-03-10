@@ -33,8 +33,7 @@ type Replica struct {
 	// list of replica addresses, in sorted order
 	Config  []string
 	Clients [NREPLICAS + 1]*rpc.Client
-	//TEMP
-	Phatlog    []string
+	Phatlog    []string //TEMP
 	Listener   net.Listener
 	IsShutdown bool
 }

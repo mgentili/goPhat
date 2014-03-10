@@ -24,6 +24,19 @@ func RunTest(r *vr.Replica) {
 	}()
 }
 
+func FailRep(shutdownRep uint, reps [N]*vr.Replica) {
+	reps[shutdownRep].Shutdown()
+	// even though we closed our listener, other replicas may still
+	// have their old connection to us open, so close those too
+	// (unfortunately this seems to be the best way to make this happen)
+	for i := 0; i < N; i++ {
+		if uint(i) == shutdownRep {
+			continue
+		}
+		reps[i].DestroyConns(shutdownRep)
+	}
+}
+
 func main() {
 	oneProcP := flag.Bool("1", false, "Run VR in 1 process")
 	indP := flag.Uint("r", 0, "replica num")
@@ -36,17 +49,7 @@ func main() {
 			RunTest(reps[ind])
 		}
 		time.Sleep(1000 * time.Millisecond)
-		shutdownRep := uint(0)
-		reps[shutdownRep].Shutdown()
-		// even though we closed our listener, other replicas may still
-		// have their old connection to us open, so close those too
-		// (unfortunately this seems to be the best way to make this happen)
-		for i := 0; i < N; i++ {
-			if uint(i) == shutdownRep {
-				continue
-			}
-			reps[i].DestroyConns(shutdownRep)
-		}
+		FailRep(0, reps)
 	} else {
 		ind := *indP
 		r := vr.RunAsReplica(ind, config)
