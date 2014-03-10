@@ -15,6 +15,11 @@ const (
 	NREPLICAS   = 2 * F // doesn't count the master as a replica
 	LEASE       = 2000 * time.Millisecond
 	MAX_RENEWAL = LEASE / 2
+	// don't resend requests too much, as it will just end up flooding
+	// crashed nodes when they come back online
+	MAX_TRIES = 2
+	// doubles after every failure
+	BACKOFF_TIME = 10 * time.Millisecond
 )
 
 // a replica's possible states
@@ -31,8 +36,8 @@ type Replica struct {
 	Mstate  MasterState
 	Vcstate ViewChangeState
 	// list of replica addresses, in sorted order
-	Config  []string
-	Clients [NREPLICAS + 1]*rpc.Client
+	Config     []string
+	Clients    [NREPLICAS + 1]*rpc.Client
 	Phatlog    []string //TEMP
 	Listener   net.Listener
 	IsShutdown bool
@@ -428,31 +433,40 @@ func (r *Replica) ClientConnect(repNum uint) error {
 * do eventually get the message, even once a majority has been reached
 * and other operations can continue
 */
+//TODO: need to handle the case where handler never returns true e.g. 
+// because we were in a network partition and couldn't reach any other
+// replicas. eventually we should exit but still somehow signify failure
 func (r *Replica) sendAndRecv(N int, msg string, args interface{}, newReply func() interface{}, handler func(reply interface{}) bool) {
 
-	type ClientCall struct {
-		call *rpc.Call
+	type ReplicaCall struct {
+		Reply interface{}
+		Error error
 		// need to track which client so we can resend as needed
-		repNum uint
+		RepNum uint
+		Tries  uint
 	}
 
-	callChan := make(chan ClientCall)
+	callChan := make(chan ReplicaCall)
 
-	sendOne := func(repNum uint) {
+	// blocks til completion
+	sendOne := func(repNum uint, tries uint) {
+		var call ReplicaCall
+		call.RepNum = repNum
+		call.Tries = tries + 1
+
+		// might need to first open a connection to them
 		if r.Clients[repNum] == nil {
-			err := r.ClientConnect(repNum)
-			if err != nil {
+			call.Error = r.ClientConnect(repNum)
+			if call.Error != nil {
+				callChan <- call
 				return
 			}
 		}
 		client := r.Clients[repNum]
-		call := client.Go(msg, args, newReply(), nil)
-		go func(c ClientCall) {
-			// wait for this call to complete
-			<-c.call.Done
-			// and now send it to the master channel
-			callChan <- c
-		}(ClientCall{call, repNum})
+		call.Reply = newReply()
+		call.Error = client.Call(msg, args, call.Reply)
+		// and now send it to the master channel
+		callChan <- call
 	}
 
 	// send requests to the replicas
@@ -461,7 +475,7 @@ func (r *Replica) sendAndRecv(N int, msg string, args interface{}, newReply func
 		if repNum == r.Rstate.ReplicaNumber {
 			continue
 		}
-		sendOne(repNum)
+		go sendOne(repNum, 0)
 		i++
 	}
 
@@ -471,20 +485,24 @@ func (r *Replica) sendAndRecv(N int, msg string, args interface{}, newReply func
 		callHandler := true
 		// and now get the responses and retry if necessary
 		for i := 0; i < N; {
-			clientCall := <-callChan
-			call := clientCall.call
+			call := <-callChan
 			if call.Error != nil {
 				// for now just resend failed messages indefinitely
 				r.Debug("sendAndRecv message error: %v", call.Error)
 				if call.Error == rpc.ErrShutdown {
-					err := r.ClientConnect(clientCall.repNum)
-					if err != nil {
-						// for now, at least, we won't retry a second time if the connection is completely shutdown
-						i++
-						continue
-					}
+					// connection is shutdown so force reconnect
+					r.Clients[call.RepNum] = nil
 				}
-				sendOne(clientCall.repNum)
+				// give up eventually
+				if call.Tries >= MAX_TRIES {
+					i++
+					continue
+				}
+				go func() {
+					// exponential backoff
+					time.Sleep(BACKOFF_TIME * (1 << (call.Tries - 1)))
+					sendOne(call.RepNum, call.Tries)
+				}()
 				continue
 			}
 			if callHandler && handler(call.Reply) {
