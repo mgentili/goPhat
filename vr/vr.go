@@ -136,6 +136,7 @@ func (r *Replica) doCommit(cn uint) {
 		return
 	} else if cn > r.Rstate.OpNumber {
 		r.Debug("need to do state transfer. only at op %d in log but got commit for %d\n", r.Rstate.OpNumber, cn)
+		r.StartRecovery()
 		return
 	} else if cn > r.Rstate.CommitNumber+1 {
 		r.Debug("need to do extra commits")
@@ -155,19 +156,28 @@ func (t *RPCReplica) Prepare(args *PrepareArgs, reply *PrepareReply) error {
 	r := t.R
 	r.Debug("Got prepare %d\n", args.OpNumber)
 
-	if args.View != r.Rstate.View {
+	if args.View > r.Rstate.View {
+		// a new master must have been elected without us, so need to recover
+		r.StartRecovery()
+	} else if args.View < r.Rstate.View {
+		// message from the old master, ignore
 		return wrongView()
 	}
 
 	if r.Rstate.Status != Normal {
-		// TODO: ideally we should just not respond or something in this case
+		// TODO: ideally we should just not respond or something in this case?
 		return errors.New("not in normal mode")
 	}
 
-	r.Rstate.ExtendLease() // TODO: do we extend lease in non-normal mode??
+	r.Rstate.ExtendLease()
 
-	if args.OpNumber != r.Rstate.OpNumber+1 {
-		// TODO: we should probably sleep or something til this is true??
+	if args.OpNumber <= r.Rstate.OpNumber {
+		// master must be resending some old request?
+		return oldOp()
+	}
+	if args.OpNumber > r.Rstate.OpNumber+1 {
+		// we must be behind?
+		r.StartRecovery()
 		return fmt.Errorf("op numbers out of sync: got %d expected %d", args.OpNumber, r.Rstate.OpNumber+1)
 	}
 
@@ -187,7 +197,12 @@ func (t *RPCReplica) Prepare(args *PrepareArgs, reply *PrepareReply) error {
 
 func (t *RPCReplica) Commit(args *CommitArgs, reply *uint) error {
 	r := t.R
-	if args.View != r.Rstate.View {
+
+	if args.View > r.Rstate.View {
+		// a new master must have been elected without us, so need to recover
+		r.StartRecovery()
+	} else if args.View < r.Rstate.View {
+		// message from the old master, ignore
 		return wrongView()
 	}
 
@@ -433,7 +448,7 @@ func (r *Replica) ClientConnect(repNum uint) error {
 * do eventually get the message, even once a majority has been reached
 * and other operations can continue
 */
-//TODO: need to handle the case where handler never returns true e.g. 
+//TODO: need to handle the case where handler never returns true e.g.
 // because we were in a network partition and couldn't reach any other
 // replicas. eventually we should exit but still somehow signify failure
 func (r *Replica) sendAndRecv(N int, msg string, args interface{}, newReply func() interface{}, handler func(reply interface{}) bool) {
