@@ -30,12 +30,26 @@ func main() {
 	_, err = cli.GetData("/dev/null")
 	log.Println("GOT", err.Error())
 
-	fmt.Println("Creating /dev/null -- should succeed")
+	log.Println("Creating /dev/null -- should succeed")
 	_, err = cli.Create("/dev/null", "empty")
 	if err != nil {
-		fmt.Sprintf("Expected no error from Create, got %s", err)
+		log.Printf("Expected no error from Create, got %s", err)
 	}
 
+	fmt.Println("Trying to get /dev/null -- should succeed")
+	n, err := cli.GetData("/dev/null")
+	if err != nil {
+		log.Printf("Expected no error from GetData, got %s", err)
+	} else if "empty" != n.Value {
+		log.Printf("Expected %s, got %s", "empty", n.Value)
+	}
+
+	/*fmt.Println("Setting /dev -- should succeed")
+	err = cli.SetData("/dev", "something")
+	if err != nil {
+		log.Printf("Expected no error from SetData, got %s", err)
+	}*/
+
     // don't exit immediately, so we can see e.g. replicas receiving commits
-    time.Sleep(1000*time.Millisecond)
+    time.Sleep(5*time.Second)
 }
