@@ -10,11 +10,12 @@ import (
 )
 
 const DEBUG = false
-var RPC_log *log.Logger 
+
+var RPC_log *log.Logger
 
 type Server struct {
 	ReplicaServer *vr.Replica
-	InputChan       chan phatdb.DBCommandWithChannel
+	InputChan     chan phatdb.DBCommandWithChannel
 }
 
 type Null struct{}
@@ -38,7 +39,7 @@ func StartServer(address string, replica *vr.Replica) (*rpc.Server, error) {
 		RPC_log = log.New(os.Stdout, "RPC: ", log.Ltime|log.Lmicroseconds)
 	}
 	listener, err := net.Listen("tcp", address)
-	if (err != nil) {
+	if err != nil {
 		return nil, err
 	}
 
@@ -48,8 +49,21 @@ func StartServer(address string, replica *vr.Replica) (*rpc.Server, error) {
 	serve.ReplicaServer = replica
 	serve.startDB()
 
+	replica.CommitFunc = func(command interface{}) {
+		argsWithChannel := command.(phatdb.DBCommandWithChannel)
+		newArgsWithChannel := phatdb.DBCommandWithChannel{argsWithChannel.Cmd, make(chan *phatdb.DBResponse)}
+		serve.InputChan <- newArgsWithChannel
+		// wait til the DB has actually committed the transaction
+		result := <-newArgsWithChannel.Done
+		// and pass the result along to the server-side RPC
+		// (if we're not master .Done will be nil since channels aren't passed over RPC)
+		if argsWithChannel.Done != nil {
+			argsWithChannel.Done <- result
+		}
+	}
+
 	err = newServer.Register(serve)
-	if (err != nil) {
+	if err != nil {
 		return nil, err
 	}
 
@@ -62,14 +76,14 @@ func StartServer(address string, replica *vr.Replica) (*rpc.Server, error) {
 // GetMaster returns the address of the current master replica
 func (s *Server) GetMaster(args *Null, reply *uint) error {
 	//TODO: If in recovery state, respond with error
-	*reply = s.ReplicaServer.Rstate.View % (vr.NREPLICAS+1)
+	*reply = s.ReplicaServer.Rstate.View % (vr.NREPLICAS + 1)
 	return nil
 }
 
 // RPCDB processes an RPC call sent by client
 func (s *Server) RPCDB(args *phatdb.DBCommand, reply *phatdb.DBResponse) error {
 	//if the server isn't the master, the respond with an error, and send over master's address
-	MasterId := s.ReplicaServer.Rstate.View % (vr.NREPLICAS+1)
+	MasterId := s.ReplicaServer.Rstate.View % (vr.NREPLICAS + 1)
 	Id := s.ReplicaServer.Rstate.ReplicaNumber
 	RPC_log.Printf("Master id: %d, My id: %d", MasterId, Id)
 	if Id != MasterId {
@@ -97,6 +111,9 @@ func (s *Server) RPCDB(args *phatdb.DBCommand, reply *phatdb.DBResponse) error {
 			//paxos(args)
 		default:
 			//for reads we can go directly to the DB
+			//TODO: make sure we have the master lease?
+			// (probably just requires making sure Rstate.Status==Normal because otherwise we wouldn't
+			// be considered master anymore)
 			RPC_log.Printf("Read-only command skips Paxos")
 			s.InputChan <- argsWithChannel
 			result := <-argsWithChannel.Done

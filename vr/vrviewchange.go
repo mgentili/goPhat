@@ -1,6 +1,7 @@
 package vr
 
 import (
+	"goPhat/phatlog"
 	"log"
 )
 
@@ -11,7 +12,7 @@ type StartViewChangeArgs struct {
 
 type StartViewArgs struct {
 	View         uint
-	Log          []string
+	Log          *phatlog.Log
 	OpNumber     uint
 	CommitNumber uint
 }
@@ -71,6 +72,11 @@ func (t *RPCReplica) StartViewChange(args *StartViewChangeArgs, reply *int) erro
 		SVCargs := StartViewChangeArgs{r.Rstate.View, r.Rstate.ReplicaNumber}
 
 		//send StartViewChange messages to all replicas
+		// TODO: we may want to only do this if our own master lease times out
+		// (and not necessarily if we get a StartViewChange from someone else)
+		// otherwise, we can potentially ditch our master too early, violating
+		// the lease contract (which implies that a new master can't be
+		// elected until a majority of the old master's leases expire)
 		go r.sendAndRecv(NREPLICAS, "RPCReplica.StartViewChange", SVCargs,
 			func() interface{} { return nil },
 			func(r interface{}) bool { return false })
@@ -111,6 +117,7 @@ func (t *RPCReplica) DoViewChange(args *DoViewChangeArgs, reply *int) error {
 		//updates replica state based on replies
 		r.calcMasterView()
 
+		// TODO: we don't technically have a master lease at this point
 		r.Rstate.Status = Normal
 		r.replicaStateInfo()
 		r.BecomeMaster()

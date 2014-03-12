@@ -3,6 +3,7 @@ package vr
 import (
 	"errors"
 	"fmt"
+	"goPhat/phatlog"
 	"log"
 	"net"
 	"net/rpc"
@@ -36,9 +37,11 @@ type Replica struct {
 	Mstate  MasterState
 	Vcstate ViewChangeState
 	// list of replica addresses, in sorted order
-	Config     []string
-	Clients    [NREPLICAS + 1]*rpc.Client
-	Phatlog    []string //TEMP
+	Config  []string
+	Clients [NREPLICAS + 1]*rpc.Client
+	Phatlog *phatlog.Log
+	// function to call to commit to a command
+	CommitFunc func(command interface{})
 	Listener   net.Listener
 	IsShutdown bool
 }
@@ -83,7 +86,7 @@ type ViewChangeState struct {
 type DoViewChangeArgs struct {
 	View          uint
 	ReplicaNumber uint
-	Log           []string
+	Log           *phatlog.Log
 	NormalView    uint
 	OpNumber      uint
 	CommitNumber  uint
@@ -120,9 +123,8 @@ func wrongView() error {
 }
 
 func (r *Replica) addLog(command interface{}) {
-	r.Phatlog = append(r.Phatlog, command.(string))
+	r.Phatlog.Add(r.Rstate.OpNumber, command)
 	r.Debug("adding command to log")
-	//    phatlog.add(command)
 }
 
 func (r *Replica) Debug(format string, args ...interface{}) {
@@ -146,7 +148,9 @@ func (r *Replica) doCommit(cn uint) {
 		}
 	}
 	r.Debug("commiting %d", r.Rstate.CommitNumber+1)
-	//db.Commit()
+	if r.CommitFunc != nil {
+		r.CommitFunc(r.Phatlog.GetCommand(r.Rstate.CommitNumber + 1))
+	}
 	r.Rstate.CommitNumber++
 }
 
@@ -247,6 +251,9 @@ func (r *Replica) Heartbeat(replica uint) {
 		// don't need to try renewing for a while
 		r.Mstate.ExtendNeedsRenewal()
 		// update our own lease
+		// TODO: this lease is overly optimistic, as it ends LEASE time
+		// from *now*, when in fact our lease will end when the first
+		// replica that sent a heartbeat's lease ends (which is earlier)
 		r.Rstate.ExtendLease()
 	}
 }
@@ -316,6 +323,7 @@ func (r *Replica) ReplicaInit() {
 	// the timer object already exists
 	r.Mstate.Timer = time.AfterFunc(MAX_RENEWAL, r.MasterNeedsRenewal)
 	r.Mstate.Timer.Stop()
+	r.Phatlog = phatlog.EmptyLog()
 }
 
 func (r *Replica) ReplicaRun() {
@@ -433,7 +441,7 @@ func (r *Replica) ClientConnect(repNum uint) error {
 * do eventually get the message, even once a majority has been reached
 * and other operations can continue
 */
-//TODO: need to handle the case where handler never returns true e.g. 
+//TODO: need to handle the case where handler never returns true e.g.
 // because we were in a network partition and couldn't reach any other
 // replicas. eventually we should exit but still somehow signify failure
 func (r *Replica) sendAndRecv(N int, msg string, args interface{}, newReply func() interface{}, handler func(reply interface{}) bool) {
