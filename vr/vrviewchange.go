@@ -1,7 +1,7 @@
 package vr
 
 import (
-	"goPhat/phatlog"
+	"github.com/mgentili/goPhat/phatlog"
 	"log"
 )
 

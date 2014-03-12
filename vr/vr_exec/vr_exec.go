@@ -2,7 +2,7 @@ package main
 
 import (
 	"flag"
-	"goPhat/vr"
+	"github.com/mgentili/goPhat/vr"
 	"log"
 	"time"
 )

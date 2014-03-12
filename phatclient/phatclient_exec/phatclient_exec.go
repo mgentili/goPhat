@@ -1,11 +1,12 @@
 package main
 
 import (
-	"github.com/mgentili/goPhat/phatRPC"
-	"github.com/mgentili/goPhat/vr"
-	"github.com/mgentili/goPhat/phatclient"
-	"log"
 	"fmt"
+	"github.com/mgentili/goPhat/phatRPC"
+	"github.com/mgentili/goPhat/phatclient"
+	"github.com/mgentili/goPhat/vr"
+	"log"
+	"time"
 )
 
 var replica_config = []string{"127.0.0.1:9000", "127.0.0.1:9001", "127.0.0.1:9002"}
@@ -34,4 +35,7 @@ func main() {
 	if err != nil {
 		fmt.Sprintf("Expected no error from Create, got %s", err)
 	}
+
+    // don't exit immediately, so we can see e.g. replicas receiving commits
+    time.Sleep(1000*time.Millisecond)
 }

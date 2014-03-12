@@ -1,6 +1,7 @@
 package phatRPC
 
 import (
+	"encoding/gob"
 	"github.com/mgentili/goPhat/phatdb"
 	"github.com/mgentili/goPhat/vr"
 	"log"
@@ -49,8 +50,15 @@ func StartServer(address string, replica *vr.Replica) (*rpc.Server, error) {
 	serve.ReplicaServer = replica
 	serve.startDB()
 
+	// have to gob.Register this struct so we can pass it through RPC
+	// as a generic interface{} (I don't understand the details that well,
+	// see http://stackoverflow.com/questions/21934730/gob-type-not-registered-for-interface-mapstringinterface)
+	gob.Register(phatdb.DBCommandWithChannel{})
+
+	// closure to be called whenever VR wants to do a DB commit
 	replica.CommitFunc = func(command interface{}) {
 		argsWithChannel := command.(phatdb.DBCommandWithChannel)
+		// we make our own DBCommandWithChannel so we (VR) can make sure the DB has committed before continuing on
 		newArgsWithChannel := phatdb.DBCommandWithChannel{argsWithChannel.Cmd, make(chan *phatdb.DBResponse)}
 		serve.InputChan <- newArgsWithChannel
 		// wait til the DB has actually committed the transaction
@@ -92,7 +100,7 @@ func (s *Server) RPCDB(args *phatdb.DBCommand, reply *phatdb.DBResponse) error {
 		reply.Reply = MasterId
 		return nil
 	} else {
-		argsWithChannel := phatdb.DBCommandWithChannel{args, make(chan *phatdb.DBResponse)}
+		argsWithChannel := phatdb.DBCommandWithChannel{args, make(chan *phatdb.DBResponse, 1)}
 		switch args.Command {
 		//if the command is a write, then we need to go through paxos
 		case "CREATE", "DELETE", "SET":

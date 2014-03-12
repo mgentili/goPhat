@@ -3,7 +3,7 @@ package vr
 import (
 	"errors"
 	"fmt"
-	"goPhat/phatlog"
+	"github.com/mgentili/goPhat/phatlog"
 	"log"
 	"net"
 	"net/rpc"
@@ -282,6 +282,7 @@ func (r *Replica) MasterNeedsRenewal() {
 
 func (r *Replica) sendCommitMsgs() {
 	args := CommitArgs{r.Rstate.View, r.Rstate.CommitNumber}
+	r.Debug("sending commit: %d", r.Rstate.CommitNumber)
 	go r.sendAndRecv(NREPLICAS, "RPCReplica.Commit", args,
 		func() interface{} { return new(uint) },
 		func(reply interface{}) bool { r.Heartbeat(*(reply.(*uint))); return false })
