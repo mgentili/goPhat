@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/rpc"
 	"os"
+	"errors"
 )
 
 const DEBUG = false
@@ -81,17 +82,30 @@ func StartServer(address string, replica *vr.Replica) (*rpc.Server, error) {
 	return newServer, nil
 }
 
+func (s *Server) getMasterId() uint {
+	return s.ReplicaServer.Rstate.View % (vr.NREPLICAS + 1)
+}
+
 // GetMaster returns the address of the current master replica
 func (s *Server) GetMaster(args *Null, reply *uint) error {
-	//TODO: If in recovery state, respond with error
-	*reply = s.ReplicaServer.Rstate.View % (vr.NREPLICAS + 1)
+
+	//if in recovery state, error
+	if s.ReplicaServer.Rstate.Status != vr.Normal {
+		return errors.New("Master Failover")
+	}
+
+	*reply = s.getMasterId()
 	return nil
 }
 
 // RPCDB processes an RPC call sent by client
 func (s *Server) RPCDB(args *phatdb.DBCommand, reply *phatdb.DBResponse) error {
+	if s.ReplicaServer.Rstate.Status != vr.Normal {
+		return errors.New("Master Failover")
+	}
+
 	//if the server isn't the master, the respond with an error, and send over master's address
-	MasterId := s.ReplicaServer.Rstate.View % (vr.NREPLICAS + 1)
+	MasterId := s.getMasterId()
 	Id := s.ReplicaServer.Rstate.ReplicaNumber
 	RPC_log.Printf("Master id: %d, My id: %d", MasterId, Id)
 	if Id != MasterId {
