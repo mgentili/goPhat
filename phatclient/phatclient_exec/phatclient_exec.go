@@ -44,11 +44,11 @@ func main() {
 		log.Printf("Expected %s, got %s", "empty", n.Value)
 	}
 
-	/*fmt.Println("Setting /dev -- should succeed")
+	fmt.Println("Setting /dev -- should succeed")
 	err = cli.SetData("/dev", "something")
 	if err != nil {
 		log.Printf("Expected no error from SetData, got %s", err)
-	}*/
+	}
 
     // don't exit immediately, so we can see e.g. replicas receiving commits
     time.Sleep(5*time.Second)

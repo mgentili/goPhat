@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"github.com/mgentili/goPhat/vr"
-	"log"
 	"time"
 )
 
