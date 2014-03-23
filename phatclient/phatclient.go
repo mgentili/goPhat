@@ -11,8 +11,11 @@ import (
 )
 
 const (
-	DefaultTimeout = time.Duration(1) * time.Second
+	DefaultTimeout = time.Duration(2) * time.Second
+	ClientTimeout = time.Duration(3) * time.Second
+	ServerTimeout = time.Duration(2) * time.Second
 	CacheTimeout = time.Duration(100) * time.Second
+	AllowCaching = true
 )
 
 var client_log *log.Logger 
@@ -46,6 +49,11 @@ type PhatClient struct {
 }
 
 type Null struct{}
+
+type KeepAliveReply struct {
+	Invalidations []Handle
+}
+
 type LockType string
 type Handle int
 type Sequencer int
@@ -89,8 +97,39 @@ func (c *PhatClient) Debug(format string, args ...interface{}) {
 	client_log.Printf(format, args...)
 }
 
-func (c *PhatClient) KeepAlive() {
+// KeepAlive pings the server, erroring if no server response within a given time interval
+// Client also invalidates cache based on server response 
+func (c *PhatClient) KeepAlive() error {
+	timer := time.NewTimer(DefaultTimeout)
 
+	reply := &KeepAliveReply{}
+
+	for {
+		dbCall := c.RpcClient.Go("Server.KeepAlive", Null{}, reply, nil)
+		select {
+		case <-timer.C:
+			c.Debug("KeepAlive Timed out on client side %v", dbCall.Error)
+			return errors.New("KeepAlive Timed Out on Client Side")
+		case <-dbCall.Done:
+			if dbCall.Error == nil {
+				timer.Reset(DefaultTimeout)
+				c.Debug("KeepAlive done with no error")
+				c.InvalidateCache(reply.Invalidations)
+			} else {
+				c.Debug("Call somehow failed with error %v, so emptying cache", dbCall.Error)
+				c.Cache = make(map[Handle]*CacheInfo)
+				time.Sleep(DefaultTimeout/10)
+				//error possibilities 1) network failure 2) server can't process request
+				c.connectToMaster()
+			}
+		}
+	}
+}
+
+func (c *PhatClient) InvalidateCache(handles []Handle) {
+	for _,h := range handles {
+		delete(c.Cache, h)
+	}
 }
 
 // connectToAnyServer connects client to server with given index
@@ -188,6 +227,10 @@ func (c *PhatClient) processCall(args *phatdb.DBCommand) (*phatdb.DBResponse, er
 }
 
 func (c *PhatClient) updateCacheEntry(h Handle, response *phatdb.DBResponse) error {
+	if !AllowCaching {
+		return nil
+	}
+
 	if _,ok := c.Cache[h]; !ok {
 		c.Cache[h] = &CacheInfo{}
 	}
@@ -223,7 +266,7 @@ func (c *PhatClient) validateCacheEntry(h Handle) (bool) {
 }
 
 func (c *PhatClient) Getroot() (Handle, error) {
-	subpath := "/"
+	subpath := ""
 	args := &phatdb.DBCommand{"GET", subpath, ""}
 	reply, err := c.processCallWithRetry(args)
 	if err != nil {
@@ -235,7 +278,20 @@ func (c *PhatClient) Getroot() (Handle, error) {
 	return h, err
 }
 
-func (c *PhatClient) Mkfile(ignored Handle, subpath string, initialdata string) (Handle, error) {
+// TODO: Should open effectively perform Getcontents?
+func (c *PhatClient) Open(subpath string) (Handle, error) {
+	h := c.createNewHandle()
+	c.PathInfo[h] = subpath
+	return h, nil
+}
+
+// Close closes a handle
+func (c *PhatClient) Close(h Handle) {
+	delete(c.Cache, h)
+	delete(c.PathInfo, h)
+}
+
+func (c *PhatClient) Mkfile(subpath string, initialdata string) (Handle, error) {
 	args := &phatdb.DBCommand{"CREATE", subpath, initialdata}
 	reply, err := c.processCallWithRetry(args)
 	if err != nil {
@@ -364,11 +420,7 @@ func (c *PhatClient) Delete(h Handle) error {
 	return err
 }
 
-// Close closes a handle
-func (c *PhatClient) Close(h Handle) {
-	delete(c.Cache, h)
-	delete(c.PathInfo, h)
-}
+
 
 
 
