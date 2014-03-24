@@ -37,9 +37,7 @@ type CacheInfo struct {
 }
 
 type PhatClient struct {
-	Cache           map[Handle]*CacheInfo //all data that client has entered
-	PathInfo map[Handle]string //maps handles to the path in the file system
-	LargestHandle Handle //Handles are monotonically increasing
+	Cache           map[string]*CacheInfo //all data that client has entered
 	Timeout         time.Duration
 	ServerLocations []string    //addresses of all servers
 	NumServers      uint         //length of ServerLocations
@@ -51,11 +49,10 @@ type PhatClient struct {
 type Null struct{}
 
 type KeepAliveReply struct {
-	Invalidations []Handle
+	Invalidations []string
 }
 
 type LockType string
-type Handle int
 type Sequencer int
 
 // NewClient creates a new client connected to the server with given id
@@ -74,8 +71,7 @@ func NewClient(servers []string, id uint) (*PhatClient, error) {
 	c.ServerLocations = servers
 	c.NumServers = uint(len(servers))
 	c.Id = id
-	c.Cache = make(map[Handle]*CacheInfo)
-	c.PathInfo = make(map[Handle]string)
+	c.Cache = make(map[string]*CacheInfo)
 	c.Timeout = DefaultTimeout
 
 	err := c.connectToServer(id)
@@ -117,7 +113,7 @@ func (c *PhatClient) KeepAlive() error {
 				c.InvalidateCache(reply.Invalidations)
 			} else {
 				c.Debug("Call somehow failed with error %v, so emptying cache", dbCall.Error)
-				c.Cache = make(map[Handle]*CacheInfo)
+				c.Cache = make(map[string]*CacheInfo)
 				time.Sleep(DefaultTimeout/10)
 				//error possibilities 1) network failure 2) server can't process request
 				c.connectToMaster()
@@ -126,7 +122,7 @@ func (c *PhatClient) KeepAlive() error {
 	}
 }
 
-func (c *PhatClient) InvalidateCache(handles []Handle) {
+func (c *PhatClient) InvalidateCache(handles []string) {
 	for _,h := range handles {
 		delete(c.Cache, h)
 	}
@@ -226,7 +222,7 @@ func (c *PhatClient) processCall(args *phatdb.DBCommand) (*phatdb.DBResponse, er
 	return reply, replyErr
 }
 
-func (c *PhatClient) updateCacheEntry(h Handle, response *phatdb.DBResponse) error {
+func (c *PhatClient) updateCacheEntry(h string, response *phatdb.DBResponse) error {
 	if !AllowCaching {
 		return nil
 	}
@@ -242,15 +238,9 @@ func (c *PhatClient) updateCacheEntry(h Handle, response *phatdb.DBResponse) err
 	return nil
 }
 
-func (c *PhatClient) createNewHandle() Handle {
-	lastHandle := c.LargestHandle
-	c.LargestHandle += 1
-	return lastHandle
-}
-
 // validateCacheEntry checks if there is an entry in the cache with the given handle
 // and if that cache entry hasn't been invalidated.
-func (c *PhatClient) validateCacheEntry(h Handle) (bool) {
+func (c *PhatClient) validateCacheEntry(h string) (bool) {
 	entry, ok := c.Cache[h]
 	if ok {
 		if entry.Invalidated {
@@ -259,171 +249,11 @@ func (c *PhatClient) validateCacheEntry(h Handle) (bool) {
 		if time.Since(entry.LastInvalidated) > CacheTimeout {
 			return false
 		}
-		c.Debug("Valid cache entry for handle with path %v\n", c.PathInfo[h])
+		c.Debug("Valid cache entry for handle with path %v\n", h)
 		return true
 	}
 	return false
 }
-
-func (c *PhatClient) Getroot() (Handle, error) {
-	subpath := ""
-	args := &phatdb.DBCommand{"GET", subpath, ""}
-	reply, err := c.processCallWithRetry(args)
-	if err != nil {
-		return -1, err
-	}
-	h := c.createNewHandle()
-	c.PathInfo[h] = subpath
-	c.updateCacheEntry(h, reply)
-	return h, err
-}
-
-// TODO: Should open effectively perform Getcontents?
-func (c *PhatClient) Open(subpath string) (Handle, error) {
-	h := c.createNewHandle()
-	c.PathInfo[h] = subpath
-	return h, nil
-}
-
-// Close closes a handle
-func (c *PhatClient) Close(h Handle) {
-	delete(c.Cache, h)
-	delete(c.PathInfo, h)
-}
-
-func (c *PhatClient) Mkfile(subpath string, initialdata string) (Handle, error) {
-	args := &phatdb.DBCommand{"CREATE", subpath, initialdata}
-	reply, err := c.processCallWithRetry(args)
-	if err != nil {
-		return -1, err
-	}
-	h := c.createNewHandle()
-	c.PathInfo[h] = subpath
-	c.updateCacheEntry(h, reply)
-	return h, err
-}
-
-func (c *PhatClient) Getcontents(h Handle) (*phatdb.DataNode, error) {
-	subpath, ok := c.PathInfo[h]
-	if !ok {
-		return nil, errors.New("Invalid handle")
-	}
-
-	if c.validateCacheEntry(h) {
-		n := c.Cache[h].Response.Reply.(phatdb.DataNode)
-		return &n, nil
-	}
-
-	args := &phatdb.DBCommand{"GET", subpath, ""}
-	reply, err := c.processCallWithRetry(args)
-	if err != nil {
-		return nil, err
-	}
-	c.updateCacheEntry(h, reply)
-
-	n := reply.Reply.(phatdb.DataNode)
-	return &n, err
-}
-
-func (c *PhatClient) Putcontents(h Handle, data string) error {
-	subpath, ok := c.PathInfo[h]
-	if !ok {
-		errors.New("Invalid handle")
-	}
-
-	args := &phatdb.DBCommand{"SET", subpath, data}
-	reply, err := c.processCallWithRetry(args)
-	if err != nil {
-		return err
-	}
-
-	c.updateCacheEntry(h, reply)
-	return nil
-}
-
-// returns a list of the children of a directory node
-func (c *PhatClient) Readdir(h Handle) ([]string, error) {
-	subpath, ok := c.PathInfo[h]
-	if !ok {
-		return nil, errors.New("Invalid handle")
-	}
-
-	args := &phatdb.DBCommand{"CHILDREN", subpath, ""}
-	reply, err := c.processCallWithRetry(args)
-	if err != nil {
-		return nil, err
-	}
-	return reply.Reply.([]string), err
-}
-
-// Stat returns the metadata for a given node. No caching for now
-func (c *PhatClient) Stat(h Handle) (*phatdb.StatNode, error) {
-	subpath, ok := c.PathInfo[h]
-	if !ok {
-		return nil, errors.New("Invalid handle")
-	}
-
-	args := &phatdb.DBCommand{"STAT", subpath, ""}
-	reply, err := c.processCallWithRetry(args)
-	if err != nil {
-		return nil, err
-	}
-
-//	c.updateCacheEntry(h, reply)
-	n := reply.Reply.(phatdb.StatNode)
-	return &n, err
-}
-
-func (c *PhatClient) Flock(h Handle, l string) (Sequencer, error) {
-	subpath, ok := c.PathInfo[h]
-	if !ok {
-		return -1, errors.New("Invalid handle")
-	}
-
-	args := &phatdb.DBCommand{"LOCK", subpath, l}
-	reply, err := c.processCallWithRetry(args)
-	if err != nil {
-		return -1, err
-	}
-	n := reply.Reply.(Sequencer)
-	return n, err
-}
-
-func (c *PhatClient) Funlock(h Handle) (Sequencer, error) {
-	subpath, ok := c.PathInfo[h]
-	if !ok {
-		return -1, errors.New("Invalid handle")
-	}
-
-	args := &phatdb.DBCommand{"UNLOCK", subpath, ""}
-	reply, err := c.processCallWithRetry(args)
-	if err != nil {
-		return -1, err
-	}
-	n := reply.Reply.(Sequencer)
-	return n, err
-}
-
-// Delete deletes a node if it doesn't have any children
-func (c *PhatClient) Delete(h Handle) error {
-	subpath, ok := c.PathInfo[h]
-	if !ok {
-		return errors.New("Invalid handle")
-	}
-
-	args := &phatdb.DBCommand{"DELETE", subpath, ""}
-	_ , err := c.processCallWithRetry(args)
-	if err != nil {
-		return err
-	}
-
-	return err
-}
-
-
-
-
-
 
 func (c *PhatClient) Create(subpath string, initialdata string) (*phatdb.DataNode, error) {
 	args := &phatdb.DBCommand{"CREATE", subpath, initialdata}
@@ -432,22 +262,36 @@ func (c *PhatClient) Create(subpath string, initialdata string) (*phatdb.DataNod
 		return nil, err
 	}
 	n := reply.Reply.(phatdb.DataNode)
+	c.updateCacheEntry(subpath, reply)
 	return &n, err
 }
 
 func (c *PhatClient) GetData(subpath string) (*phatdb.DataNode, error) {
+	if c.validateCacheEntry(subpath) {
+		n := c.Cache[subpath].Response.Reply.(phatdb.DataNode)
+		return &n, nil
+	}
+
 	args := &phatdb.DBCommand{"GET", subpath, ""}
 	reply, err := c.processCallWithRetry(args)
 	if err != nil {
 		return nil, err
 	}
 	n := reply.Reply.(phatdb.DataNode)
+
+	c.updateCacheEntry(subpath, reply)
+	
 	return &n, err
 }
 
 func (c *PhatClient) SetData(subpath string, data string) error {
+
 	args := &phatdb.DBCommand{"SET", subpath, data}
-	_, err := c.processCallWithRetry(args)
+	reply, err := c.processCallWithRetry(args)
+	if err != nil {
+		return err
+	}
+	c.updateCacheEntry(subpath, reply)
 	return err
 }
 
@@ -468,4 +312,26 @@ func (c *PhatClient) GetStats(subpath string) (*phatdb.StatNode, error) {
 	}
 	n := reply.Reply.(phatdb.StatNode)
 	return &n, err
+}
+
+func (c *PhatClient) Flock(subpath string, l string) (error) {
+	
+	args := &phatdb.DBCommand{"LOCK", subpath, l}
+	_ , err := c.processCallWithRetry(args)
+	return err
+}
+
+func (c *PhatClient) Funlock(subpath string) (error) {
+	
+	args := &phatdb.DBCommand{"UNLOCK", subpath, ""}
+	_ , err := c.processCallWithRetry(args)
+	return err
+}
+
+// Delete deletes a node if it doesn't have any children
+func (c *PhatClient) Delete(subpath string) error {
+
+	args := &phatdb.DBCommand{"DELETE", subpath, ""}
+	_ , err := c.processCallWithRetry(args)
+	return err
 }
