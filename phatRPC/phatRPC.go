@@ -4,10 +4,13 @@ import (
 	"encoding/gob"
 	"github.com/mgentili/goPhat/phatdb"
 	"github.com/mgentili/goPhat/vr"
+	"github.com/mgentili/goPhat/phatclient"
 	"log"
 	"net"
 	"net/rpc"
 	"os"
+	"errors"
+	"time"
 )
 
 const DEBUG = false
@@ -17,6 +20,7 @@ var RPC_log *log.Logger
 type Server struct {
 	ReplicaServer *vr.Replica
 	InputChan     chan phatdb.DBCommandWithChannel
+	ClientListeners map[int](chan int)
 }
 
 type Null struct{}
@@ -81,17 +85,42 @@ func StartServer(address string, replica *vr.Replica) (*rpc.Server, error) {
 	return newServer, nil
 }
 
+func (s *Server) getMasterId() uint {
+	return s.ReplicaServer.Rstate.View % (vr.NREPLICAS + 1)
+}
+
+// TODO: reply with things to invalidate
+func (s *Server) KeepAlive(args *Null, reply *phatclient.KeepAliveReply) error {
+	timer := time.NewTimer(phatclient.ServerTimeout)
+	select {
+		case <-timer.C:
+			return nil
+		//case <-dbCall.Done:
+	}
+
+	return nil
+}
+
 // GetMaster returns the address of the current master replica
 func (s *Server) GetMaster(args *Null, reply *uint) error {
-	//TODO: If in recovery state, respond with error
-	*reply = s.ReplicaServer.Rstate.View % (vr.NREPLICAS + 1)
+
+	//if in recovery state, error
+	if s.ReplicaServer.Rstate.Status != vr.Normal {
+		return errors.New("Master Failover")
+	}
+
+	*reply = s.getMasterId()
 	return nil
 }
 
 // RPCDB processes an RPC call sent by client
 func (s *Server) RPCDB(args *phatdb.DBCommand, reply *phatdb.DBResponse) error {
+	if s.ReplicaServer.Rstate.Status != vr.Normal {
+		return errors.New("Master Failover")
+	}
+
 	//if the server isn't the master, the respond with an error, and send over master's address
-	MasterId := s.ReplicaServer.Rstate.View % (vr.NREPLICAS + 1)
+	MasterId := s.getMasterId()
 	Id := s.ReplicaServer.Rstate.ReplicaNumber
 	RPC_log.Printf("Master id: %d, My id: %d", MasterId, Id)
 	if Id != MasterId {
