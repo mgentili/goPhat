@@ -15,7 +15,11 @@ const (
 	F           = 1
 	NREPLICAS   = 2 * F // doesn't count the master as a replica
 	LEASE       = 2000 * time.Millisecond
-	MAX_RENEWAL = LEASE / 2
+    // how soon master renews lease before actual expiry date. e.g. if lease expires in 100 seconds
+    // the master starts trying to renew the lease after 100/RENEW_FACTOR seconds
+    RENEW_FACTOR = 2
+    // the margin we allow different replicas' clocks to be off by and still have correct behavior
+    MAX_CLOCK_DRIFT = LEASE / 10
 	// don't resend requests too much, as it will just end up flooding
 	// crashed nodes when they come back online
 	MAX_TRIES = 2
@@ -70,7 +74,7 @@ type MasterState struct {
 	Replies uint64
 
 	Timer            *time.Timer
-	Heartbeats       int
+	Heartbeats       map[uint]time.Time
 	HeartbeatReplies uint64
 }
 
@@ -103,11 +107,17 @@ type PrepareReply struct {
 	View          uint
 	OpNumber      uint
 	ReplicaNumber uint
+    Lease time.Time
 }
 
 type CommitArgs struct {
 	View         uint
 	CommitNumber uint
+}
+
+type HeartbeatReply struct {
+    ReplicaNumber uint
+    Lease time.Time
 }
 
 // Go doesn't have assertions...
@@ -168,12 +178,14 @@ func (t *RPCReplica) Prepare(args *PrepareArgs, reply *PrepareReply) error {
 		return errors.New("not in normal mode")
 	}
 
-	r.Rstate.ExtendLease() // TODO: do we extend lease in non-normal mode??
-
 	if args.OpNumber != r.Rstate.OpNumber+1 {
 		// TODO: we should probably sleep or something til this is true??
 		return fmt.Errorf("op numbers out of sync: got %d expected %d", args.OpNumber, r.Rstate.OpNumber+1)
 	}
+
+    reply.Lease = time.Now().Add(LEASE)
+    reply.ReplicaNumber = r.Rstate.ReplicaNumber
+	r.Rstate.ExtendLease(reply.Lease)
 
 	r.Rstate.OpNumber++
 	r.addLog(args.Command)
@@ -184,20 +196,19 @@ func (t *RPCReplica) Prepare(args *PrepareArgs, reply *PrepareReply) error {
 
 	reply.View = r.Rstate.View
 	reply.OpNumber = r.Rstate.OpNumber
-	reply.ReplicaNumber = r.Rstate.ReplicaNumber
 
 	return nil
 }
 
-func (t *RPCReplica) Commit(args *CommitArgs, reply *uint) error {
+func (t *RPCReplica) Commit(args *CommitArgs, reply *HeartbeatReply) error {
 	r := t.R
 	if args.View != r.Rstate.View {
 		return wrongView()
 	}
 
-	r.Rstate.ExtendLease()
-
-	*reply = r.Rstate.ReplicaNumber
+    reply.ReplicaNumber = r.Rstate.ReplicaNumber
+    reply.Lease = time.Now().Add(LEASE)
+	r.Rstate.ExtendLease(reply.Lease)
 
 	r.doCommit(args.CommitNumber)
 
@@ -211,12 +222,10 @@ func (r *Replica) IsMaster() bool {
 func (mstate *MasterState) Reset() {
 	mstate.A = 0
 	mstate.Replies = 0
-	mstate.Heartbeats = 0
-	mstate.HeartbeatReplies = 0
 }
 
-func (mstate *MasterState) ExtendNeedsRenewal() {
-	mstate.Timer.Reset(MAX_RENEWAL)
+func (mstate *MasterState) ExtendNeedsRenewal(newTime time.Time) {
+	mstate.Timer.Reset((newTime - time.Now()) / RENEW_FACTOR + time.Now())
 }
 
 func (r *Replica) Shutdown() {
@@ -234,32 +243,34 @@ func (r *Replica) DestroyConns(repNum uint) {
 	}
 }
 
-func (r *Replica) Heartbeat(replica uint) {
-	assert(r.IsMaster())
+func (a []time.Time) Len() int { return len(a) }
+func (a []time.Time) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
+func (a []time.Time) Less(i, j int) bool { return a[i].Before(a[j])  }
 
-	if ((1 << replica) & r.Mstate.HeartbeatReplies) != 0 {
-		return
-	}
-
-	r.Mstate.HeartbeatReplies |= 1 << replica
-	r.Mstate.Heartbeats++
-
-	// we've gotten a majority to renew our lease!
-	if r.Mstate.Heartbeats == F {
-		r.Mstate.Heartbeats = 0
-		r.Mstate.HeartbeatReplies = 0
-		// don't need to try renewing for a while
-		r.Mstate.ExtendNeedsRenewal()
-		// update our own lease
-		// TODO: this lease is overly optimistic, as it ends LEASE time
-		// from *now*, when in fact our lease will end when the first
-		// replica that sent a heartbeat's lease ends (which is earlier)
-		r.Rstate.ExtendLease()
-	}
+func SortTimes(times map[uint]time.Time) []time.Time {
+    vals := make([]time.Time, len(times))
+    i := 0
+    for _, v := range m {
+        vals[i] = k
+        i++
+    }
+    sort.Sort(vals)
 }
 
-func (rstate *ReplicaState) ExtendLease() {
-	rstate.Timer.Reset(LEASE)
+func (r *Replica) Heartbeat(replica uint, newTime time.Time) {
+	assert(r.IsMaster())
+
+	r.Mstate.Heartbeats[replica] = newTime
+
+    sortedTimes := SortTimes(r.Mstate.Heartbeats)
+    assert(len(sortedTimes) == NREPLICAS)
+    leaseExpiry := sortedTimes[F].Add(-MAX_CLOCK_DRIFT)
+    r.Mstate.ExtendNeedsRenewal(leaseExpiry)
+    r.Rstate.ExtendLease(leaseExpiry)
+}
+
+func (rstate *ReplicaState) ExtendLease(newTime time.Time) {
+	rstate.Timer.Reset(time.Sub(newTime, time.Now()))
 }
 
 func (r *Replica) ReplicaTimeout() {
@@ -270,7 +281,7 @@ func (r *Replica) ReplicaTimeout() {
 	r.Debug("Timed out, trying view change")
 	r.PrepareViewChange()
 	// start counting again so we timeout if the new replica can't become master
-	r.Rstate.ExtendLease()
+	r.Rstate.ExtendLease(time.Now().Add(LEASE))
 }
 
 func (r *Replica) MasterNeedsRenewal() {
@@ -308,8 +319,9 @@ func (r *Replica) BecomeMaster() {
 	// TODO: anything else we need to do to become the master?
 	r.Mstate.Reset()
 	// resets master's timer
-	r.Mstate.ExtendNeedsRenewal()
-	r.Rstate.ExtendLease()
+    // TODO: this should be done differently
+	r.Mstate.ExtendNeedsRenewal(time.Now().Add(LEASE - MAX_CLOCK_DRIFT))
+	r.Rstate.ExtendLease(time.Now().Add(LEASE - MAX_CLOCK_DRIFT))
 }
 
 func (r *Replica) ReplicaInit() {
