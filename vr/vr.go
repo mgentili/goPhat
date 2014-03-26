@@ -3,6 +3,7 @@ package vr
 import (
 	"errors"
 	"fmt"
+	"github.com/mgentili/goPhat/phatlog"
 	"log"
 	"net"
 	"net/rpc"
@@ -32,13 +33,16 @@ const (
 type Command string
 
 type Replica struct {
-	Rstate  ReplicaState
-	Mstate  MasterState
-	Vcstate ViewChangeState
+	Rstate   ReplicaState
+	Mstate   MasterState
+	Vcstate  ViewChangeState
+	Rcvstate RecoveryState
 	// list of replica addresses, in sorted order
-	Config     []string
-	Clients    [NREPLICAS + 1]*rpc.Client
-	Phatlog    []string //TEMP
+	Config  []string
+	Clients [NREPLICAS + 1]*rpc.Client
+	Phatlog *phatlog.Log
+	// function to call to commit to a command
+	CommitFunc func(command interface{})
 	Listener   net.Listener
 	IsShutdown bool
 }
@@ -80,13 +84,34 @@ type ViewChangeState struct {
 	NormalView       uint
 }
 
+type RecoveryState struct {
+	RecoveryResponseMsgs    [NREPLICAS + 1]RecoveryResponseArgs
+	RecoveryResponseReplies uint64
+	RecoveryResponses       uint
+	Nonce                   uint
+}
+
 type DoViewChangeArgs struct {
 	View          uint
 	ReplicaNumber uint
-	Log           []string
+	Log           *phatlog.Log
 	NormalView    uint
 	OpNumber      uint
 	CommitNumber  uint
+}
+
+type RecoveryArgs struct {
+	ReplicaNumber uint
+	Nonce         uint
+}
+
+type RecoveryResponseArgs struct {
+	View          uint
+	Nonce         uint
+	Log           *phatlog.Log
+	OpNumber      uint
+	CommitNumber  uint
+	ReplicaNumber uint
 }
 
 type PrepareArgs struct {
@@ -120,9 +145,8 @@ func wrongView() error {
 }
 
 func (r *Replica) addLog(command interface{}) {
-	r.Phatlog = append(r.Phatlog, command.(string))
+	r.Phatlog.Add(r.Rstate.OpNumber, command)
 	r.Debug("adding command to log")
-	//    phatlog.add(command)
 }
 
 func (r *Replica) Debug(format string, args ...interface{}) {
@@ -147,7 +171,9 @@ func (r *Replica) doCommit(cn uint) {
 		}
 	}
 	r.Debug("commiting %d", r.Rstate.CommitNumber+1)
-	//db.Commit()
+	if r.CommitFunc != nil {
+		r.CommitFunc(r.Phatlog.GetCommand(r.Rstate.CommitNumber + 1))
+	}
 	r.Rstate.CommitNumber++
 }
 
@@ -262,6 +288,9 @@ func (r *Replica) Heartbeat(replica uint) {
 		// don't need to try renewing for a while
 		r.Mstate.ExtendNeedsRenewal()
 		// update our own lease
+		// TODO: this lease is overly optimistic, as it ends LEASE time
+		// from *now*, when in fact our lease will end when the first
+		// replica that sent a heartbeat's lease ends (which is earlier)
 		r.Rstate.ExtendLease()
 	}
 }
@@ -290,6 +319,7 @@ func (r *Replica) MasterNeedsRenewal() {
 
 func (r *Replica) sendCommitMsgs() {
 	args := CommitArgs{r.Rstate.View, r.Rstate.CommitNumber}
+	r.Debug("sending commit: %d", r.Rstate.CommitNumber)
 	go r.sendAndRecv(NREPLICAS, "RPCReplica.Commit", args,
 		func() interface{} { return new(uint) },
 		func(reply interface{}) bool { r.Heartbeat(*(reply.(*uint))); return false })
@@ -331,6 +361,7 @@ func (r *Replica) ReplicaInit() {
 	// the timer object already exists
 	r.Mstate.Timer = time.AfterFunc(MAX_RENEWAL, r.MasterNeedsRenewal)
 	r.Mstate.Timer.Stop()
+	r.Phatlog = phatlog.EmptyLog()
 }
 
 func (r *Replica) ReplicaRun() {

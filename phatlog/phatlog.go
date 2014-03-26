@@ -10,19 +10,25 @@ type Command struct {
 
 //is map the best choice here?
 type Log struct {
-	Commits  map[int]*Command
-	MaxIndex int //highest seen index
+	Commits  map[uint]interface{}
+	MaxIndex uint //highest seen index
 }
 
 //no builtin int max function??
-func Max(a, b int) int {
+func Max(a, b uint) uint {
 	if a < b {
 		return b
 	}
 	return a
 }
 
-func (l *Log) commit(index int, command *Command) {
+func EmptyLog() *Log {
+	l := new(Log)
+	l.Commits = make(map[uint]interface{})
+	return l
+}
+
+func (l *Log) Add(index uint, command interface{}) {
 	//should we check if this has already been commited to log?
 	//in practice this would not matter, but might be useful
 	//for debugging
@@ -31,6 +37,6 @@ func (l *Log) commit(index int, command *Command) {
 
 }
 
-func (l *Log) getCommit(index int) *Command {
+func (l *Log) GetCommand(index uint) interface{} {
 	return l.Commits[index]
 }
