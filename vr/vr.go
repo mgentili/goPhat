@@ -37,9 +37,10 @@ const (
 type Command string
 
 type Replica struct {
-	Rstate  ReplicaState
-	Mstate  MasterState
-	Vcstate ViewChangeState
+	Rstate   ReplicaState
+	Mstate   MasterState
+	Vcstate  ViewChangeState
+	Rcvstate RecoveryState
 	// list of replica addresses, in sorted order
 	Config  []string
 	Clients [NREPLICAS + 1]*rpc.Client
@@ -87,6 +88,13 @@ type ViewChangeState struct {
 	NormalView       uint
 }
 
+type RecoveryState struct {
+	RecoveryResponseMsgs    [NREPLICAS + 1]RecoveryResponseArgs
+	RecoveryResponseReplies uint64
+	RecoveryResponses       uint
+	Nonce                   uint
+}
+
 type DoViewChangeArgs struct {
 	View          uint
 	ReplicaNumber uint
@@ -94,6 +102,20 @@ type DoViewChangeArgs struct {
 	NormalView    uint
 	OpNumber      uint
 	CommitNumber  uint
+}
+
+type RecoveryArgs struct {
+	ReplicaNumber uint
+	Nonce         uint
+}
+
+type RecoveryResponseArgs struct {
+	View          uint
+	Nonce         uint
+	Log           *phatlog.Log
+	OpNumber      uint
+	CommitNumber  uint
+	ReplicaNumber uint
 }
 
 type PrepareArgs struct {
