@@ -195,6 +195,9 @@ func (t *RPCReplica) Prepare(args *PrepareArgs, reply *PrepareReply) error {
 	if args.View > r.Rstate.View {
 		// a new master must have been elected without us, so need to recover
 		r.PrepareRecovery()
+		//TODO: should we return an error, block until recovery completes, or
+		// something else??
+		return errors.New("recovering")
 	} else if args.View < r.Rstate.View {
 		// message from the old master, ignore
 		return wrongView()
@@ -238,6 +241,7 @@ func (t *RPCReplica) Commit(args *CommitArgs, reply *HeartbeatReply) error {
 	if args.View > r.Rstate.View {
 		// a new master must have been elected without us, so need to recover
 		r.PrepareRecovery()
+		return errors.New("doing a recovery")
 	} else if args.View < r.Rstate.View {
 		// message from the old master, ignore
 		return wrongView()
