@@ -136,7 +136,7 @@ func (r *Replica) doCommit(cn uint) {
 		return
 	} else if cn > r.Rstate.OpNumber {
 		r.Debug("need to do state transfer. only at op %d in log but got commit for %d\n", r.Rstate.OpNumber, cn)
-		r.StartRecovery()
+		r.PrepareRecovery()
 		return
 	} else if cn > r.Rstate.CommitNumber+1 {
 		r.Debug("need to do extra commits")
@@ -158,7 +158,7 @@ func (t *RPCReplica) Prepare(args *PrepareArgs, reply *PrepareReply) error {
 
 	if args.View > r.Rstate.View {
 		// a new master must have been elected without us, so need to recover
-		r.StartRecovery()
+		r.PrepareRecovery()
 	} else if args.View < r.Rstate.View {
 		// message from the old master, ignore
 		return wrongView()
@@ -173,11 +173,11 @@ func (t *RPCReplica) Prepare(args *PrepareArgs, reply *PrepareReply) error {
 
 	if args.OpNumber <= r.Rstate.OpNumber {
 		// master must be resending some old request?
-		return oldOp()
+		return errors.New("old op number")
 	}
 	if args.OpNumber > r.Rstate.OpNumber+1 {
 		// we must be behind?
-		r.StartRecovery()
+		r.PrepareRecovery()
 		return fmt.Errorf("op numbers out of sync: got %d expected %d", args.OpNumber, r.Rstate.OpNumber+1)
 	}
 
@@ -200,7 +200,7 @@ func (t *RPCReplica) Commit(args *CommitArgs, reply *uint) error {
 
 	if args.View > r.Rstate.View {
 		// a new master must have been elected without us, so need to recover
-		r.StartRecovery()
+		r.PrepareRecovery()
 	} else if args.View < r.Rstate.View {
 		// message from the old master, ignore
 		return wrongView()
