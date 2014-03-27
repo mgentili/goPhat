@@ -453,18 +453,8 @@ func (r *Replica) handlePrepareOK(reply *PrepareReply) bool {
 	return true
 }
 
-// TODO: the only place this is currently used is to send a DoViewChange to the new master.
-// in reality that message should probably be a .Go call, that runs in the background resending
-// until the message is received (basically like sendAndRecv but for only one specific replica)
-func (r *Replica) SendSync(repNum uint, msg string, args interface{}, reply interface{}) error {
-	if r.Clients[repNum] == nil {
-		err := r.ClientConnect(repNum)
-		if err != nil {
-			return err
-		}
-	}
-	err := r.Clients[repNum].Call(msg, args, reply)
-	return err
+func (r *Replica) SendSync(repNum uint, msg string, args interface{}, reply interface{}) {
+	r.sendAndRecvTo([]uint{repNum}, msg, args, func() interface{} { return reply }, func(r interface{}) bool { return false })
 }
 
 func (r *Replica) ClientConnect(repNum uint) error {
@@ -474,13 +464,31 @@ func (r *Replica) ClientConnect(repNum uint) error {
 	if err != nil {
 		r.Debug("error trying to connect to replica %d: %v", repNum, err)
 	} else {
+		if r.Clients[repNum] != nil {
+			r.Clients[repNum].Close()
+		}
 		r.Clients[repNum] = c
 	}
 
 	return err
 }
 
-/* Sends RPC to N other replicas
+// same as sendAndRecvTo but just picks any N replicas
+func (r *Replica) sendAndRecv(N int, msg string, args interface{}, newReply func() interface{}, handler func(reply interface{}) bool) {
+	assert(N <= NREPLICAS)
+	reps := make([]uint, N)
+	i := 0
+	for repNum := uint(0); i < N && repNum < NREPLICAS+1; repNum++ {
+		if repNum == r.Rstate.ReplicaNumber {
+			continue
+		}
+		reps[i] = repNum
+		i++
+	}
+	r.sendAndRecvTo(reps, msg, args, newReply, handler)
+}
+
+/* Sends RPC to the given list of replicas
 * msg is the RPC call name
 * args is the argument struct
 * newReply is a constructor that returns a new object of the expected reply
@@ -498,8 +506,7 @@ func (r *Replica) ClientConnect(repNum uint) error {
 //TODO: need to handle the case where handler never returns true e.g.
 // because we were in a network partition and couldn't reach any other
 // replicas. eventually we should exit but still somehow signify failure
-func (r *Replica) sendAndRecv(N int, msg string, args interface{}, newReply func() interface{}, handler func(reply interface{}) bool) {
-
+func (r *Replica) sendAndRecvTo(replicas []uint, msg string, args interface{}, newReply func() interface{}, handler func(reply interface{}) bool) {
 	type ReplicaCall struct {
 		Reply interface{}
 		Error error
@@ -532,13 +539,11 @@ func (r *Replica) sendAndRecv(N int, msg string, args interface{}, newReply func
 	}
 
 	// send requests to the replicas
-	i := 0 // == requests sent
-	for repNum := uint(0); i < N && repNum < NREPLICAS+1; repNum++ {
+	for _, repNum := range replicas {
 		if repNum == r.Rstate.ReplicaNumber {
 			continue
 		}
 		go sendOne(repNum, 0)
-		i++
 	}
 
 	doneChan := make(chan int)
@@ -546,6 +551,7 @@ func (r *Replica) sendAndRecv(N int, msg string, args interface{}, newReply func
 	go func() {
 		callHandler := true
 		// and now get the responses and retry if necessary
+		N := len(replicas)
 		for i := 0; i < N; {
 			call := <-callChan
 			if call.Error != nil {
@@ -553,11 +559,12 @@ func (r *Replica) sendAndRecv(N int, msg string, args interface{}, newReply func
 				r.Debug("sendAndRecv message error: %v", call.Error)
 				if call.Error == rpc.ErrShutdown {
 					// connection is shutdown so force reconnect
+					r.Clients[call.RepNum].Close()
 					r.Clients[call.RepNum] = nil
 				}
-				// give up eventually
+				// give up eventually (mainly, helps recovery errors actually show up)
 				if call.Tries >= MAX_TRIES {
-					i++
+					//i++
 					continue
 				}
 				go func() {

@@ -29,6 +29,7 @@ func (r *Replica) PrepareRecovery() {
 func (t *RPCReplica) Recovery(args *RecoveryArgs, reply *int) error {
 	r := t.R
 
+	r.Debug("Got Recovery RPC")
 	//only send a response if our state is normal
 	if r.Rstate.Status != Normal {
 		return nil
@@ -44,6 +45,8 @@ func (t *RPCReplica) Recovery(args *RecoveryArgs, reply *int) error {
 
 func (t *RPCReplica) RecoveryResponse(args *RecoveryResponseArgs, reply *int) error {
 	r := t.R
+
+	r.Debug("got recoveryresponse")
 
 	//already recieved a recovery response message from this replica
 	if ((1 << args.ReplicaNumber) & r.Rcvstate.RecoveryResponseReplies) != 0 {
@@ -63,7 +66,7 @@ func (t *RPCReplica) RecoveryResponse(args *RecoveryResponseArgs, reply *int) er
 	var masterId uint = r.Rstate.View % (NREPLICAS + 1)
 
 	//We have recived enough Recovery messages and have recieved from master
-	if r.Rcvstate.RecoveryResponses == F && ((1<<masterId)&r.Rcvstate.RecoveryResponseReplies) == 1 {
+	if r.Rcvstate.RecoveryResponses >= F+1 && ((1<<masterId)&r.Rcvstate.RecoveryResponseReplies) == 1 {
 		r.Rstate.View = r.Rcvstate.RecoveryResponseMsgs[masterId].View
 		r.Rstate.CommitNumber = r.Rcvstate.RecoveryResponseMsgs[masterId].CommitNumber
 		r.Rstate.OpNumber = r.Rcvstate.RecoveryResponseMsgs[masterId].OpNumber
