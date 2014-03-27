@@ -19,7 +19,7 @@ func RunTest(r *vr.Replica) {
 			}
 			r.RunVR("foo")
 			r.RunVR("bar")
-			time.Sleep(10 * time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 		}
 	}()
 }
@@ -38,7 +38,7 @@ func FailRep(shutdownRep uint, reps [N]*vr.Replica) {
 }
 
 func main() {
-	oneProcP := flag.Bool("1", false, "Run VR in 1 process")
+	oneProcP := flag.Bool("one", false, "Run VR in 1 process")
 	indP := flag.Uint("r", 0, "replica num")
 	flag.Parse()
 
