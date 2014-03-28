@@ -6,19 +6,17 @@ import (
 	"github.com/mgentili/goPhat/phatdb"
 	"log"
 	"net/rpc"
-	"time"
 	"os"
+	"time"
 )
 
 const (
 	DefaultTimeout = time.Duration(2) * time.Second
-	ClientTimeout = time.Duration(3) * time.Second
-	ServerTimeout = time.Duration(2) * time.Second
-	CacheTimeout = time.Duration(100) * time.Second
-	AllowCaching = true
+	ClientTimeout  = time.Duration(3) * time.Second
+	ServerTimeout  = time.Duration(2) * time.Second
 )
 
-var client_log *log.Logger 
+var client_log *log.Logger
 
 func StringToError(s string) error {
 	client_log.Println("Convert to err:", s)
@@ -28,29 +26,16 @@ func StringToError(s string) error {
 	return errors.New(s)
 }
 
-//the information stored for each entry in the cache
-type CacheInfo struct {
-	LastInvalidated time.Time
-	Invalidated bool
-
-	Response *phatdb.DBResponse
-}
-
 type PhatClient struct {
-	Cache           map[string]*CacheInfo //all data that client has entered
 	Timeout         time.Duration
 	ServerLocations []string    //addresses of all servers
-	NumServers      uint         //length of ServerLocations
-	MasterId        uint         //id of master server
-	Id              uint         //id of currently connected server
+	NumServers      uint        //length of ServerLocations
+	MasterId        uint        //id of master server
+	Id              uint        //id of currently connected server
 	RpcClient       *rpc.Client //client connection to server (usually the master)
 }
 
 type Null struct{}
-
-type KeepAliveReply struct {
-	Invalidations []string
-}
 
 type LockType string
 type Sequencer int
@@ -67,11 +52,10 @@ func NewClient(servers []string, id uint) (*PhatClient, error) {
 	// We need to register the DataNode and StatNode before we can use them in gob
 	gob.Register(phatdb.DataNode{})
 	gob.Register(phatdb.StatNode{})
-	
+
 	c.ServerLocations = servers
 	c.NumServers = uint(len(servers))
 	c.Id = id
-	c.Cache = make(map[string]*CacheInfo)
 	c.Timeout = DefaultTimeout
 
 	err := c.connectToServer(id)
@@ -91,41 +75,6 @@ func NewClient(servers []string, id uint) (*PhatClient, error) {
 
 func (c *PhatClient) Debug(format string, args ...interface{}) {
 	client_log.Printf(format, args...)
-}
-
-// KeepAlive pings the server, erroring if no server response within a given time interval
-// Client also invalidates cache based on server response 
-func (c *PhatClient) KeepAlive() error {
-	timer := time.NewTimer(DefaultTimeout)
-
-	reply := &KeepAliveReply{}
-
-	for {
-		dbCall := c.RpcClient.Go("Server.KeepAlive", Null{}, reply, nil)
-		select {
-		case <-timer.C:
-			c.Debug("KeepAlive Timed out on client side %v", dbCall.Error)
-			return errors.New("KeepAlive Timed Out on Client Side")
-		case <-dbCall.Done:
-			if dbCall.Error == nil {
-				timer.Reset(DefaultTimeout)
-				c.Debug("KeepAlive done with no error")
-				c.InvalidateCache(reply.Invalidations)
-			} else {
-				c.Debug("Call somehow failed with error %v, so emptying cache", dbCall.Error)
-				c.Cache = make(map[string]*CacheInfo)
-				time.Sleep(DefaultTimeout/10)
-				//error possibilities 1) network failure 2) server can't process request
-				c.connectToMaster()
-			}
-		}
-	}
-}
-
-func (c *PhatClient) InvalidateCache(handles []string) {
-	for _,h := range handles {
-		delete(c.Cache, h)
-	}
 }
 
 // connectToAnyServer connects client to server with given index
@@ -153,7 +102,7 @@ func (c *PhatClient) connectToMaster() error {
 			c.Debug("Errored when calling get master %v", err)
 		}
 		//if problem with RPC or server is in recovery, need to connect to different server
-		c.connectToServer((c.Id + uint(i + 1)) % c.NumServers)
+		c.connectToServer((c.Id + uint(i+1)) % c.NumServers)
 	}
 
 	// If the currently connected server isn't the master, connect to master
@@ -201,7 +150,7 @@ func (c *PhatClient) processCallWithRetry(args *phatdb.DBCommand) (*phatdb.DBRes
 				return reply, replyErr
 			}
 			c.Debug("Call somehow failed with error %v", dbCall.Error)
-			time.Sleep(DefaultTimeout/10)
+			time.Sleep(DefaultTimeout / 10)
 			//error possibilities 1) network failure 2) server can't process request
 			c.connectToMaster()
 		}
@@ -222,39 +171,6 @@ func (c *PhatClient) processCall(args *phatdb.DBCommand) (*phatdb.DBResponse, er
 	return reply, replyErr
 }
 
-func (c *PhatClient) updateCacheEntry(h string, response *phatdb.DBResponse) error {
-	if !AllowCaching {
-		return nil
-	}
-
-	if _,ok := c.Cache[h]; !ok {
-		c.Cache[h] = &CacheInfo{}
-	}
-	
-	c.Cache[h].LastInvalidated = time.Now()
-	c.Cache[h].Invalidated = false
-	c.Cache[h].Response = response
-
-	return nil
-}
-
-// validateCacheEntry checks if there is an entry in the cache with the given handle
-// and if that cache entry hasn't been invalidated.
-func (c *PhatClient) validateCacheEntry(h string) (bool) {
-	entry, ok := c.Cache[h]
-	if ok {
-		if entry.Invalidated {
-			return false
-		}
-		if time.Since(entry.LastInvalidated) > CacheTimeout {
-			return false
-		}
-		c.Debug("Valid cache entry for handle with path %v\n", h)
-		return true
-	}
-	return false
-}
-
 func (c *PhatClient) Create(subpath string, initialdata string) (*phatdb.DataNode, error) {
 	args := &phatdb.DBCommand{"CREATE", subpath, initialdata}
 	reply, err := c.processCallWithRetry(args)
@@ -262,16 +178,10 @@ func (c *PhatClient) Create(subpath string, initialdata string) (*phatdb.DataNod
 		return nil, err
 	}
 	n := reply.Reply.(phatdb.DataNode)
-	c.updateCacheEntry(subpath, reply)
 	return &n, err
 }
 
 func (c *PhatClient) GetData(subpath string) (*phatdb.DataNode, error) {
-	if c.validateCacheEntry(subpath) {
-		n := c.Cache[subpath].Response.Reply.(phatdb.DataNode)
-		return &n, nil
-	}
-
 	args := &phatdb.DBCommand{"GET", subpath, ""}
 	reply, err := c.processCallWithRetry(args)
 	if err != nil {
@@ -279,19 +189,15 @@ func (c *PhatClient) GetData(subpath string) (*phatdb.DataNode, error) {
 	}
 	n := reply.Reply.(phatdb.DataNode)
 
-	c.updateCacheEntry(subpath, reply)
-	
 	return &n, err
 }
 
 func (c *PhatClient) SetData(subpath string, data string) error {
-
 	args := &phatdb.DBCommand{"SET", subpath, data}
-	reply, err := c.processCallWithRetry(args)
+	_, err := c.processCallWithRetry(args)
 	if err != nil {
 		return err
 	}
-	c.updateCacheEntry(subpath, reply)
 	return err
 }
 
@@ -314,24 +220,9 @@ func (c *PhatClient) GetStats(subpath string) (*phatdb.StatNode, error) {
 	return &n, err
 }
 
-func (c *PhatClient) Flock(subpath string, l string) (error) {
-	
-	args := &phatdb.DBCommand{"LOCK", subpath, l}
-	_ , err := c.processCallWithRetry(args)
-	return err
-}
-
-func (c *PhatClient) Funlock(subpath string) (error) {
-	
-	args := &phatdb.DBCommand{"UNLOCK", subpath, ""}
-	_ , err := c.processCallWithRetry(args)
-	return err
-}
-
 // Delete deletes a node if it doesn't have any children
 func (c *PhatClient) Delete(subpath string) error {
-
 	args := &phatdb.DBCommand{"DELETE", subpath, ""}
-	_ , err := c.processCallWithRetry(args)
+	_, err := c.processCallWithRetry(args)
 	return err
 }
