@@ -2,15 +2,13 @@ package phatRPC
 
 import (
 	"encoding/gob"
+	"errors"
 	"github.com/mgentili/goPhat/phatdb"
 	"github.com/mgentili/goPhat/vr"
-	"github.com/mgentili/goPhat/phatclient"
 	"log"
 	"net"
 	"net/rpc"
 	"os"
-	"errors"
-	"time"
 )
 
 const DEBUG = false
@@ -18,8 +16,8 @@ const DEBUG = false
 var RPC_log *log.Logger
 
 type Server struct {
-	ReplicaServer *vr.Replica
-	InputChan     chan phatdb.DBCommandWithChannel
+	ReplicaServer   *vr.Replica
+	InputChan       chan phatdb.DBCommandWithChannel
 	ClientListeners map[int](chan int)
 }
 
@@ -87,18 +85,6 @@ func StartServer(address string, replica *vr.Replica) (*rpc.Server, error) {
 
 func (s *Server) getMasterId() uint {
 	return s.ReplicaServer.Rstate.View % (vr.NREPLICAS + 1)
-}
-
-// TODO: reply with things to invalidate
-func (s *Server) KeepAlive(args *Null, reply *phatclient.KeepAliveReply) error {
-	timer := time.NewTimer(phatclient.ServerTimeout)
-	select {
-		case <-timer.C:
-			return nil
-		//case <-dbCall.Done:
-	}
-
-	return nil
 }
 
 // GetMaster returns the address of the current master replica

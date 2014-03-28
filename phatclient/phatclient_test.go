@@ -1,12 +1,12 @@
-package tests
+package phatclient
 
 import (
-	"testing"
-	"github.com/mgentili/goPhat/phatRPC"
-	"github.com/mgentili/goPhat/vr"
-	"github.com/mgentili/goPhat/phatclient"
-	"log"
 	"fmt"
+	"github.com/mgentili/goPhat/phatRPC"
+	"github.com/mgentili/goPhat/phatclient"
+	"github.com/mgentili/goPhat/vr"
+	"log"
+	"testing"
 )
 
 const BASE = 9000
