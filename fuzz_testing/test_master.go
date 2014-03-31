@@ -11,35 +11,43 @@ import (
 	"strconv"
 	"flag"
 	"bufio"
+	"github.com/mgentili/goPhat/phatclient"
 )
 
 type TestMaster struct {
 	ReplicaProcesses []*exec.Cmd
+	MasterClient *phatclient.PhatClient
 	NumAliveReplicas int
+	SentMessages int
 }
 
-// StartNodes starts up n replica nodes
+// StartNodes starts up n replica nodes and connects a client to all of them.
+// That client will be the one to send requests and testing functions (e.g. stop connnection)
 func (t *TestMaster) StartNodes(n int) {
 	log.Printf("Starting %d nodes\n", n)
 	server_locations := make([]string, n)
-	init_port := 9000
+	rpc_locations := make([]string, n)
+
+	host := "127.0.0.1"
+	init_server_port := 9000
+	init_rpc_port := 6000
 
 	for i:=0; i < n; i++ {
-		server_locations[i] = fmt.Sprintf("127.0.0.1:%d", init_port + i)
+		server_locations[i] = fmt.Sprintf("%s:%d", host, init_server_port + i)
+		rpc_locations[i] = fmt.Sprintf("%s:%d", host, init_rpc_port + i)
 	}
 
 	all_server_locations := strings.Join(server_locations, ",")
-	log.Printf("Server locations: %d\n", all_server_locations)
-	start_node_file := "vr_exec"
-
+	all_rpc_locations := strings.Join(rpc_locations, ",")
+	start_node_file := "fuzz_testing_exec"
+	//start_node_file := "vr_exec"
 	t.ReplicaProcesses = make([]*exec.Cmd, n)
 
 	for i:=n-1; i >= 0; i-- {
-		//cmd := exec.Command(start_node_file, "-peer-addr", string(i), "-peers", all_server_locations)
-		cmd := exec.Command(start_node_file, "-r", strconv.Itoa(i))
+		cmd := exec.Command(start_node_file, "--index", strconv.Itoa(i), "--replica_config", all_server_locations, "--rpc_config", all_rpc_locations)
+		//cmd := exec.Command(start_node_file, "-r", strconv.Itoa(i))
 		cmd.Stdout = os.Stdout
     	cmd.Stderr = os.Stderr
-		log.Printf("Command %d\n", cmd)
 		
 		err := cmd.Start() //does command in background
 		if err != nil {
@@ -49,9 +57,21 @@ func (t *TestMaster) StartNodes(n int) {
 		t.ReplicaProcesses[i] = cmd
 	}
 
+	time.Sleep(time.Second)
+	var err error
+	t.MasterClient, err = phatclient.NewClient(rpc_locations, 0)
+	if err != nil {
+		log.Fatal("Unable to start master client")
+	}
+
+	//creates a database entry so that we can SetData on that entry without erroring
+	t.SendCreateMessage();
 	t.NumAliveReplicas = n
+
 	//err := t.ReplicaProcesses[0].Wait()
 	//log.Printf("Command finished with error: %v", err)
+
+	
 }
 
 // KillNode kills a given node (kills the corresponding process)
@@ -70,9 +90,18 @@ func (t *TestMaster) KillNode(i int) error {
 func (t *TestMaster) StopNode(i int) {
 	go func() {
 		t.ReplicaProcesses[i].Process.Signal(syscall.SIGSTOP)
-		time.Sleep(time.Second)
+		time.Sleep(5*time.Second)
 		t.ReplicaProcesses[i].Process.Signal(syscall.SIGCONT)
 	}()
+}
+
+func (t *TestMaster) SendCreateMessage() {
+	t.MasterClient.Create("/dev/null", "0")
+}
+
+func (t*TestMaster) SendSetDataMessage() {
+	t.SentMessages+=1
+	t.MasterClient.SetData("/dev/null", strconv.Itoa(t.SentMessages))
 }
 
 func (t *TestMaster) ProcessCall(i int) {
@@ -81,6 +110,8 @@ func (t *TestMaster) ProcessCall(i int) {
 			t.KillNode(0)
 		case i < 20:
 			t.StopNode(0)
+		case i < 30:
+			t.SendSetDataMessage()
 	}
 }
 
@@ -108,7 +139,6 @@ func readLines(path string) ([]int, error) {
 func main() {
 	path := flag.String("path", "", "File path")
 	flag.Parse()
-	log.Printf("Path is %d", *path)
 	time.Sleep(time.Second)
 	t := new(TestMaster)
 
