@@ -14,12 +14,13 @@ const (
 	DefaultTimeout = time.Duration(2) * time.Second
 	ClientTimeout  = time.Duration(3) * time.Second
 	ServerTimeout  = time.Duration(2) * time.Second
+	DEBUG = true
 )
 
 var client_log *log.Logger
 
-func StringToError(s string) error {
-	client_log.Println("Convert to err:", s)
+func (c *PhatClient) StringToError(s string) error {
+	c.Debug("Convert to err:", s)
 	if s == "" {
 		return nil
 	}
@@ -74,7 +75,10 @@ func NewClient(servers []string, id uint) (*PhatClient, error) {
 }
 
 func (c *PhatClient) Debug(format string, args ...interface{}) {
-	client_log.Printf(format, args...)
+	if DEBUG {
+		client_log.Printf(format, args...)
+	}
+	
 }
 
 // connectToAnyServer connects client to server with given index
@@ -139,11 +143,12 @@ func (c *PhatClient) processCallWithRetry(args *phatdb.DBCommand) (*phatdb.DBRes
 		dbCall := c.RpcClient.Go("Server.RPCDB", args, reply, nil)
 		select {
 		case <-timeout:
+			c.Debug("Timed out")
 			return nil, errors.New("Timed out")
 		case <-dbCall.Done:
 			if dbCall.Error == nil {
 				c.Debug("Call done with no error")
-				replyErr = StringToError(reply.Error)
+				replyErr = c.StringToError(reply.Error)
 				if replyErr != nil {
 					return nil, replyErr
 				}
@@ -164,7 +169,7 @@ func (c *PhatClient) processCall(args *phatdb.DBCommand) (*phatdb.DBResponse, er
 	if err != nil {
 		return nil, err
 	}
-	replyErr := StringToError(reply.Error)
+	replyErr := c.StringToError(reply.Error)
 	if replyErr != nil {
 		return nil, replyErr
 	}
@@ -172,8 +177,10 @@ func (c *PhatClient) processCall(args *phatdb.DBCommand) (*phatdb.DBResponse, er
 }
 
 func (c *PhatClient) Create(subpath string, initialdata string) (*phatdb.DataNode, error) {
+	c.Debug("Creating file")
 	args := &phatdb.DBCommand{"CREATE", subpath, initialdata}
 	reply, err := c.processCallWithRetry(args)
+	c.Debug("Finished creating file")
 	if err != nil {
 		return nil, err
 	}
@@ -193,6 +200,7 @@ func (c *PhatClient) GetData(subpath string) (*phatdb.DataNode, error) {
 }
 
 func (c *PhatClient) SetData(subpath string, data string) error {
+	c.Debug("Setting Data")
 	args := &phatdb.DBCommand{"SET", subpath, data}
 	_, err := c.processCallWithRetry(args)
 	if err != nil {

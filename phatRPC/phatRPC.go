@@ -11,7 +11,7 @@ import (
 	"os"
 )
 
-const DEBUG = false
+const DEBUG = true
 
 var RPC_log *log.Logger
 
@@ -23,13 +23,15 @@ type Server struct {
 
 type Null struct{}
 
-/*func (s *Server) Debug(format string, args ...interface{}) {
-	RPC_log.Printf(format, args...)
-}*/
+func Debug(format string, args ...interface{}) {
+	if DEBUG {
+		RPC_log.Printf(format, args...)
+	}
+}
 
 // startDB starts the database for the server
 func (s *Server) startDB() {
-	RPC_log.Printf("Starting DB")
+	Debug("Starting DB")
 	input := make(chan phatdb.DBCommandWithChannel)
 	s.InputChan = input
 	go phatdb.DatabaseServer(input)
@@ -77,7 +79,7 @@ func StartServer(address string, replica *vr.Replica) (*rpc.Server, error) {
 		return nil, err
 	}
 
-	RPC_log.Printf("Server at %s trying to accept new client connections\n", address)
+	Debug("Server at %s trying to accept new client connections\n", address)
 	go newServer.Accept(listener)
 	//log.Println("Accepted new connection?")
 	return newServer, nil
@@ -108,9 +110,9 @@ func (s *Server) RPCDB(args *phatdb.DBCommand, reply *phatdb.DBResponse) error {
 	//if the server isn't the master, the respond with an error, and send over master's address
 	MasterId := s.getMasterId()
 	Id := s.ReplicaServer.Rstate.ReplicaNumber
-	RPC_log.Printf("Master id: %d, My id: %d", MasterId, Id)
+	Debug("Master id: %d, My id: %d", MasterId, Id)
 	if Id != MasterId {
-		RPC_log.Printf("I'm not the master!")
+		Debug("I'm not the master!")
 		reply.Error = "Not master node"
 		reply.Reply = MasterId
 		return nil
@@ -119,29 +121,27 @@ func (s *Server) RPCDB(args *phatdb.DBCommand, reply *phatdb.DBResponse) error {
 		switch args.Command {
 		//if the command is a write, then we need to go through paxos
 		case "CREATE", "DELETE", "SET":
-			RPC_log.Printf("Need to send command via Paxos")
-			if !DEBUG {
-				RPC_log.Printf("Not debugging, so using Paxos")
-				s.ReplicaServer.RunVR(argsWithChannel)
-			} else {
-				RPC_log.Printf("Debugging, so skipping paxos")
+			Debug("Need to send command via Paxos")
+			s.ReplicaServer.RunVR(argsWithChannel)
+			/*else {
+				s.Debug("Debugging, so skipping paxos")
 				s.InputChan <- argsWithChannel
-			}
-			RPC_log.Printf("Command committed, waiting for DB response")
+			}*/
+			Debug("Command committed, waiting for DB response")
 			result := <-argsWithChannel.Done
 			*reply = *result
-			RPC_log.Printf("Finished write-only")
+			Debug("Finished write-only")
 			//paxos(args)
 		default:
 			//for reads we can go directly to the DB
 			//TODO: make sure we have the master lease?
 			// (probably just requires making sure Rstate.Status==Normal because otherwise we wouldn't
 			// be considered master anymore)
-			RPC_log.Printf("Read-only command skips Paxos")
+			Debug("Read-only command skips Paxos")
 			s.InputChan <- argsWithChannel
 			result := <-argsWithChannel.Done
 			*reply = *result
-			RPC_log.Printf("Finished read-only")
+			Debug("Finished read-only")
 		}
 	}
 	return nil

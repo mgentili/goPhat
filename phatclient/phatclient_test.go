@@ -3,7 +3,6 @@ package phatclient
 import (
 	"fmt"
 	"github.com/mgentili/goPhat/phatRPC"
-	"github.com/mgentili/goPhat/phatclient"
 	"github.com/mgentili/goPhat/vr"
 	"log"
 	"testing"
@@ -20,7 +19,7 @@ func TestClientConnection(t *testing.T) {
 		phatRPC.StartServer(client_config[i], newReplica)
 	}
 
-	cli, err := phatclient.NewClient(client_config, 1)
+	cli, err := NewClient(client_config, 1)
 	if err != nil {
 		log.Printf(err.Error())
 	}

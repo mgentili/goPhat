@@ -14,64 +14,71 @@ import (
 	"github.com/mgentili/goPhat/phatclient"
 )
 
+const (
+	HOST = "127.0.0.1"
+	INIT_SERVER_PORT = 9000
+	INIT_RPC_PORT = 6000
+	START_NODE_FILE = "fuzz_testing_exec"
+)
+
 type TestMaster struct {
 	ReplicaProcesses []*exec.Cmd
 	MasterClient *phatclient.PhatClient
 	NumAliveReplicas int
-	SentMessages int
+	NumSentMessages int
+	Server_Locations []string
+	RPC_Locations []string
 }
 
 // StartNodes starts up n replica nodes and connects a client to all of them.
 // That client will be the one to send requests and testing functions (e.g. stop connnection)
-func (t *TestMaster) StartNodes(n int) {
+func (t *TestMaster) Setup(n int) {
 	log.Printf("Starting %d nodes\n", n)
-	server_locations := make([]string, n)
-	rpc_locations := make([]string, n)
-
-	host := "127.0.0.1"
-	init_server_port := 9000
-	init_rpc_port := 6000
-
-	for i:=0; i < n; i++ {
-		server_locations[i] = fmt.Sprintf("%s:%d", host, init_server_port + i)
-		rpc_locations[i] = fmt.Sprintf("%s:%d", host, init_rpc_port + i)
-	}
-
-	all_server_locations := strings.Join(server_locations, ",")
-	all_rpc_locations := strings.Join(rpc_locations, ",")
-	start_node_file := "fuzz_testing_exec"
-	//start_node_file := "vr_exec"
+	t.Server_Locations = make([]string, n)
+	t.RPC_Locations = make([]string, n)
 	t.ReplicaProcesses = make([]*exec.Cmd, n)
 
-	for i:=n-1; i >= 0; i-- {
-		cmd := exec.Command(start_node_file, "--index", strconv.Itoa(i), "--replica_config", all_server_locations, "--rpc_config", all_rpc_locations)
-		//cmd := exec.Command(start_node_file, "-r", strconv.Itoa(i))
-		cmd.Stdout = os.Stdout
-    	cmd.Stderr = os.Stderr
-		
-		err := cmd.Start() //does command in background
-		if err != nil {
-			log.Fatal(err)
-		}
+	for i:=0; i < n; i++ {
+		t.Server_Locations[i] = fmt.Sprintf("%s:%d", HOST, INIT_SERVER_PORT + i)
+		t.RPC_Locations[i] = fmt.Sprintf("%s:%d", HOST, INIT_RPC_PORT + i)
+	}
 
-		t.ReplicaProcesses[i] = cmd
+	for i:=n-1; i >= 0; i-- {
+		t.StartNode(i)
 	}
 
 	time.Sleep(time.Second)
+	t.NumAliveReplicas = n
+	t.StartMasterClient()
+}
+
+func (t *TestMaster) StartMasterClient() {
 	var err error
-	t.MasterClient, err = phatclient.NewClient(rpc_locations, 0)
+	t.MasterClient, err = phatclient.NewClient(t.RPC_Locations, 0)
 	if err != nil {
 		log.Fatal("Unable to start master client")
 	}
 
 	//creates a database entry so that we can SetData on that entry without erroring
 	t.SendCreateMessage();
-	t.NumAliveReplicas = n
+}
 
-	//err := t.ReplicaProcesses[0].Wait()
-	//log.Printf("Command finished with error: %v", err)
-
+func (t *TestMaster) StartNode(i int) error {
+	cmd := exec.Command(START_NODE_FILE, "--index", strconv.Itoa(i), 
+										 "--replica_config", strings.Join(t.Server_Locations, ","),
+										 "--rpc_config", strings.Join(t.RPC_Locations, ","))
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 	
+	err := cmd.Start() //does command in background
+	if err != nil {
+		log.Fatal("Starting node failed")
+		return err
+	}
+
+	t.ReplicaProcesses[i] = cmd
+
+	return nil
 }
 
 // KillNode kills a given node (kills the corresponding process)
@@ -86,55 +93,74 @@ func (t *TestMaster) KillNode(i int) error {
 }
 
 // StopNode stops a given node (stops the corresponding process)
-// and then wakes it up after a given amount of time
 func (t *TestMaster) StopNode(i int) {
-	go func() {
-		t.ReplicaProcesses[i].Process.Signal(syscall.SIGSTOP)
-		time.Sleep(5*time.Second)
-		t.ReplicaProcesses[i].Process.Signal(syscall.SIGCONT)
-	}()
+	t.ReplicaProcesses[i].Process.Signal(syscall.SIGSTOP)
+}
+
+// ResumeNode resumes a given node (must have been stopped before)
+func (t *TestMaster) ResumeNode(i int) {
+	t.ReplicaProcesses[i].Process.Signal(syscall.SIGCONT)
 }
 
 func (t *TestMaster) SendCreateMessage() {
-	t.MasterClient.Create("/dev/null", "0")
+	_ , err := t.MasterClient.Create("/dev/null", "-1")
 	log.Printf("Send create message succeeded!")
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
-func (t*TestMaster) SendSetDataMessage() {
-	t.SentMessages+=1
-	t.MasterClient.SetData("/dev/null", strconv.Itoa(t.SentMessages))
+func (t *TestMaster) SendSetDataMessage() {
+	t.MasterClient.SetData("/dev/null", strconv.Itoa(t.NumSentMessages))
+	t.NumSentMessages+=1
 	log.Printf("Send set message succeeded!")
 }
 
-func (t *TestMaster) ProcessCall(i int) {
+func (t *TestMaster) SendGetDataMessage() {
+	response, err := t.MasterClient.GetData("/dev/null")
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("Get Data Response: %d", response.Value)
+}
+
+func (t *TestMaster) ProcessCall(s string) {
+	command := strings.Split(s, " ")
 	switch {
-		case i < 10:
-			t.KillNode(0)
-		case i < 20:
-			t.StopNode(0)
-		case i < 30:
+		case command[0] == "startnodes":
+			numnodes, _ := strconv.Atoi(command[1])
+			t.Setup(numnodes)
+		case command[0] == "stopnode":
+			node, _ := strconv.Atoi(command[1])
+			t.StopNode(node)
+		case command[0] == "resumenode":
+			node, _ := strconv.Atoi(command[1])
+			t.ResumeNode(node)
+		case command[0] == "wait":
+			seconds, _ := strconv.Atoi(command[1])
+			time.Sleep(time.Duration(seconds)*time.Second)
+		case command[0] == "putfile":
 			t.SendSetDataMessage()
+		case command[0] == "getfile":
+			t.SendGetDataMessage()
 	}
 }
 
 // readLines reads a whole file into memory
 // and returns a slice of its lines (assuming one int per line).
-func readLines(path string) ([]int, error) {
+func readLines(path string) ([]string, error) {
   file, err := os.Open(path)
   if err != nil {
     return nil, err
   }
   defer file.Close()
 
-  var lines []int
+  var lines []string
   scanner := bufio.NewScanner(file)
   for scanner.Scan() {
-  	input, err := strconv.Atoi(scanner.Text())
-  	if err != nil {
-  		log.Fatal(err)
-  	}
-    lines = append(lines, input)
+    lines = append(lines, scanner.Text())
   }
+  log.Printf("%v",lines)
   return lines, scanner.Err()
 }
 
@@ -145,7 +171,7 @@ func main() {
 	t := new(TestMaster)
 
 	if *path == "" {
-		t.StartNodes(3)
+		t.Setup(3)
 		t.SendSetDataMessage()
 		t.SendSetDataMessage()
 		time.Sleep(time.Second)
@@ -160,9 +186,7 @@ func main() {
 			log.Fatal(err)
 		}
 
-		t.StartNodes(values[0])
-
-		for _, v := range values[1:] {
+		for _, v := range values {
 			t.ProcessCall(v)
 		}
 	}
