@@ -97,11 +97,13 @@ func (t *TestMaster) StopNode(i int) {
 
 func (t *TestMaster) SendCreateMessage() {
 	t.MasterClient.Create("/dev/null", "0")
+	log.Printf("Send create message succeeded!")
 }
 
 func (t*TestMaster) SendSetDataMessage() {
 	t.SentMessages+=1
 	t.MasterClient.SetData("/dev/null", strconv.Itoa(t.SentMessages))
+	log.Printf("Send set message succeeded!")
 }
 
 func (t *TestMaster) ProcessCall(i int) {
@@ -144,6 +146,8 @@ func main() {
 
 	if *path == "" {
 		t.StartNodes(3)
+		t.SendSetDataMessage()
+		t.SendSetDataMessage()
 		time.Sleep(time.Second)
 		t.StopNode(2)
 		time.Sleep(2*time.Second)
