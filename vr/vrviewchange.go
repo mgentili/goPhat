@@ -25,14 +25,12 @@ func (r *Replica) replicaStateInfo() {
 	log.Printf("Replica %d: ViewNumber:%d, OpNumber:%d, CommitNumber:%d\n", r.Rstate.ReplicaNumber, r.Rstate.View, r.Rstate.OpNumber, r.Rstate.CommitNumber)
 }
 
+func (r *Replica) resetVcstate() {
+	r.Vcstate = ViewChangeState{}
+}
+
 //A replica notices that a viewchange is needed - starts off the messages
 func (r *Replica) PrepareViewChange() {
-
-	//timeout occurs but we are already in viewchange
-	if r.Rstate.Status == ViewChange {
-		return
-	}
-
 	r.Rstate.Status = ViewChange
 	r.Rstate.View++
 	r.logVcstate("PrepareViewChange")
@@ -144,6 +142,7 @@ func (t *RPCReplica) StartView(args *DoViewChangeArgs, reply *int) error {
 	r.Rstate.ExtendLease()
 
 	r.replicaStateInfo()
+	r.resetVcstate()
 	r.logVcstate("ViewChangeComplete!")
 
 	return nil

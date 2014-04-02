@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	F           = 1
+	F           = 2
 	NREPLICAS   = 2 * F // doesn't count the master as a replica
 	LEASE       = 2000 * time.Millisecond
 	MAX_RENEWAL = LEASE / 2
