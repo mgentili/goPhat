@@ -1,9 +1,5 @@
 package phatdb
 
-import (
-	"log"
-)
-
 type DBCommand struct {
 	Command string
 	Path    string
@@ -28,7 +24,6 @@ func DatabaseServer(input chan DBCommandWithChannel) {
 	for {
 		request := <-input
 		req := request.Cmd
-		log.Printf("Received request: %s", req.Command)
 		resp := &DBResponse{}
 		switch req.Command {
 		case "CHILDREN":
@@ -41,7 +36,6 @@ func DatabaseServer(input chan DBCommandWithChannel) {
 		case "CREATE":
 			n, err := createNode(root, req.Path, req.Value)
 			if err == nil {
-				log.Printf("Create didn't error\n")
 				resp.Reply = n
 			} else {
 				resp.Error = err.Error()
@@ -68,10 +62,9 @@ func DatabaseServer(input chan DBCommandWithChannel) {
 				resp.Error = err.Error()
 			}
 		case "SET":
-			n, err := setNode(root, req.Path, req.Value)
-			if err == nil {
-				resp.Reply = n
-			} else {
+			_, err := setNode(root, req.Path, req.Value)
+			// SET doesn't return any results on success
+			if err != nil {
 				resp.Error = err.Error()
 			}
 		default:
