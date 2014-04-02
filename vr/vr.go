@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	F           = 1
+	F           = 2
 	NREPLICAS   = 2 * F // doesn't count the master as a replica
 	LEASE       = 2000 * time.Millisecond
     // how soon master renews lease before actual expiry date. e.g. if lease expires in 100 seconds
