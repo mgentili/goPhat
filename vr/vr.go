@@ -85,7 +85,7 @@ type ViewChangeState struct {
 }
 
 type RecoveryState struct {
-	RecoveryResponseMsgs    [NREPLICAS + 1]RecoveryResponseArgs
+	RecoveryResponseMsgs    [NREPLICAS + 1]RecoveryResponse
 	RecoveryResponseReplies uint64
 	RecoveryResponses       uint
 	Nonce                   uint
@@ -105,7 +105,7 @@ type RecoveryArgs struct {
 	Nonce         uint
 }
 
-type RecoveryResponseArgs struct {
+type RecoveryResponse struct {
 	View          uint
 	Nonce         uint
 	Log           *phatlog.Log
@@ -389,8 +389,7 @@ func (r *Replica) ReplicaRun() {
 func (r *Replica) RunVR(command interface{}) {
 	assert(r.IsMaster() /*&& holdLease()*/)
 
-	// FIXME: right now we enforce that the last operation has been committed before starting a new one
-	assert(r.Rstate.OpNumber == r.Rstate.CommitNumber)
+	assert(r.Rstate.OpNumber >= r.Rstate.CommitNumber)
 
 	r.Mstate.Reset()
 
@@ -433,7 +432,7 @@ func (r *Replica) handlePrepareOK(reply *PrepareReply) bool {
 	}
 
 	// we've now gotten a majority
-	r.doCommit(r.Rstate.CommitNumber + 1)
+	r.doCommit(r.Rstate.OpNumber)
 
 	// TODO: we shouldn't really need to do this (only on periods of inactivity)
 	r.sendCommitMsgs()
