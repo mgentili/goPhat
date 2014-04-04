@@ -3,15 +3,16 @@ package vr
 import (
 	"github.com/mgentili/goPhat/phatlog"
 	"log"
+	"time"
 )
 
 type ViewChangeState struct {
-    DoViewChangeMsgs [NREPLICAS]DoViewChangeArgs
-    DoViewReplies    uint64
-    StartViewReplies uint64
-    StartViews       uint
-    DoViews          uint
-    NormalView       uint
+	DoViewChangeMsgs [NREPLICAS]DoViewChangeArgs
+	DoViewReplies    uint64
+	StartViewReplies uint64
+	StartViews       uint
+	DoViews          uint
+	NormalView       uint
 }
 
 type StartViewChangeArgs struct {
@@ -27,12 +28,12 @@ type StartViewArgs struct {
 }
 
 type DoViewChangeArgs struct {
-    View          uint
-    ReplicaNumber uint
-    Log           *phatlog.Log
-    NormalView    uint
-    OpNumber      uint
-    CommitNumber  uint
+	View          uint
+	ReplicaNumber uint
+	Log           *phatlog.Log
+	NormalView    uint
+	OpNumber      uint
+	CommitNumber  uint
 }
 
 func (r *Replica) logVcstate(state string) {
@@ -106,7 +107,7 @@ func (t *RPCReplica) StartViewChange(args *StartViewChangeArgs, reply *int) erro
 		if !r.IsMaster() {
 			r.logVcstate("Sending DoViewChange")
 			log.Printf("Sending to: %d\n", r.Rstate.View%(NREPLICAS))
-			r.SendSync(r.Rstate.View%(NREPLICAS), "RPCReplica.DoViewChange", DVCargs, nil)
+			r.SendOne(r.Rstate.View%(NREPLICAS), "RPCReplica.DoViewChange", DVCargs, nil)
 		}
 	}
 
@@ -157,7 +158,7 @@ func (t *RPCReplica) StartView(args *DoViewChangeArgs, reply *int) error {
 	r.Rstate.OpNumber = args.OpNumber
 	r.Rstate.CommitNumber = args.CommitNumber
 	r.Rstate.Status = Normal
-	r.Rstate.ExtendLease()
+	r.Rstate.ExtendLease(time.Now().Add(LEASE))
 
 	r.replicaStateInfo()
 	r.resetVcstate()

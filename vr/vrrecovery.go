@@ -1,30 +1,30 @@
 package vr
 
 import (
+	"github.com/mgentili/goPhat/phatlog"
 	"log"
-    "github.com/mgentili/goPhat/phatlog"
 	"math/rand"
 )
 
 type RecoveryState struct {
-    RecoveryResponseMsgs    [NREPLICAS]RecoveryResponse
-    RecoveryResponseReplies uint64
-    RecoveryResponses       uint
-    Nonce                   uint
+	RecoveryResponseMsgs    [NREPLICAS]RecoveryResponse
+	RecoveryResponseReplies uint64
+	RecoveryResponses       uint
+	Nonce                   uint
 }
 
 type RecoveryArgs struct {
-    ReplicaNumber uint
-    Nonce         uint
+	ReplicaNumber uint
+	Nonce         uint
 }
 
 type RecoveryResponse struct {
-    View          uint
-    Nonce         uint
-    Log           *phatlog.Log
-    OpNumber      uint
-    CommitNumber  uint
-    ReplicaNumber uint
+	View          uint
+	Nonce         uint
+	Log           *phatlog.Log
+	OpNumber      uint
+	CommitNumber  uint
+	ReplicaNumber uint
 }
 
 func (r *Replica) resetRcvstate() {
