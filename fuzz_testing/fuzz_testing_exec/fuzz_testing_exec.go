@@ -2,8 +2,8 @@ package main
 
 import (
 	"flag"
-	"github.com/mgentili/goPhat/vr"
 	"github.com/mgentili/goPhat/phatRPC"
+	"github.com/mgentili/goPhat/vr"
 	"strings"
 )
 
@@ -14,13 +14,13 @@ func main() {
 	replica_config := flag.String("replica_config", "", "list of all replica addresses separated by commas")
 	rpc_config := flag.String("rpc_config", "", "list of all RPC addresses separated by commas")
 
-	flag.Parse() 	
+	flag.Parse()
 
 	ind := *index
 	replicas := strings.Split(*replica_config, ",")
 	rpcs := strings.Split(*rpc_config, ",")
 	r := vr.RunAsReplica(ind, replicas)
 	phatRPC.StartServer(rpcs[ind], r)
-	
+
 	<-make(chan int)
 }
