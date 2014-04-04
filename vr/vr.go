@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	F         = 2
+	F         = 1
 	NREPLICAS = 2*F + 1
 	LEASE     = 2000 * time.Millisecond
 	// how soon master renews lease before actual expiry date. e.g. if lease expires in 100 seconds
@@ -298,7 +298,7 @@ func (r *Replica) addLog(command interface{}) {
 
 func (r *Replica) doCommit(cn uint) {
 	if cn <= r.Rstate.CommitNumber {
-		r.Debug("Ignoring commit %d, already commited up to %d", cn, r.Rstate.CommitNumber)
+		//r.Debug("Ignoring commit %d, already commited up to %d", cn, r.Rstate.CommitNumber)
 		return
 	} else if cn > r.Rstate.OpNumber {
 		r.Debug("need to do state transfer. only at op %d in log but got commit for %d\n", r.Rstate.OpNumber, cn)
