@@ -24,7 +24,7 @@ func (r *Replica) PrepareRecovery() {
 	r.Rcvstate.Nonce = uint(rand.Uint32())
 	args := RecoveryArgs{r.Rstate.ReplicaNumber, r.Rcvstate.Nonce}
 
-	go r.sendAndRecv(NREPLICAS, "RPCReplica.Recovery", args,
+	go r.sendAndRecv(NREPLICAS-1, "RPCReplica.Recovery", args,
 		func() interface{} { return new(RecoveryResponse) },
 		func(reply interface{}) bool { return r.handleRecoveryResponse(reply.(*RecoveryResponse)) })
 
@@ -69,7 +69,7 @@ func (r *Replica) handleRecoveryResponse(reply *RecoveryResponse) bool {
 	}
 
 	// this could be outdated, but it WON'T be outdated once we have F+1 responses
-	var masterId uint = r.Rstate.View % (NREPLICAS + 1)
+	var masterId uint = r.Rstate.View % (NREPLICAS)
 
 	//We have recived enough Recovery messages and have recieved from master
 	if r.Rcvstate.RecoveryResponses >= F+1 && ((1<<masterId)&r.Rcvstate.RecoveryResponseReplies) != 0 {

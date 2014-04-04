@@ -9,7 +9,7 @@ import (
 var config = []string{"127.0.0.1:9000", "127.0.0.1:9001", "127.0.0.1:9002",
 	"127.0.0.1:9003", "127.0.0.1:9004"}
 
-const N = 5
+const N = vr.NREPLICAS
 
 func RunTest(r *vr.Replica) {
 	go func() {

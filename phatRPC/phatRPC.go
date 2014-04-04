@@ -84,7 +84,7 @@ func StartServer(address string, replica *vr.Replica) (*rpc.Server, error) {
 }
 
 func (s *Server) getMasterId() uint {
-	return s.ReplicaServer.Rstate.View % (vr.NREPLICAS + 1)
+	return s.ReplicaServer.Rstate.View % (vr.NREPLICAS)
 }
 
 // GetMaster returns the address of the current master replica

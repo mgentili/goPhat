@@ -13,7 +13,7 @@ import (
 
 const (
 	F           = 2
-	NREPLICAS   = 2 * F // doesn't count the master as a replica
+	NREPLICAS   = 2 * F + 1
 	LEASE       = 2000 * time.Millisecond
     // how soon master renews lease before actual expiry date. e.g. if lease expires in 100 seconds
     // the master starts trying to renew the lease after 100/RENEW_FACTOR seconds
@@ -43,7 +43,7 @@ type Replica struct {
 	Rcvstate RecoveryState
 	// list of replica addresses, in sorted order
 	Config  []string
-	Clients [NREPLICAS + 1]*rpc.Client
+	Clients [NREPLICAS]*rpc.Client
 	Phatlog *phatlog.Log
 	// function to call to commit to a command
 	CommitFunc func(command interface{})
@@ -80,7 +80,7 @@ type MasterState struct {
 }
 
 type ViewChangeState struct {
-	DoViewChangeMsgs [NREPLICAS + 1]DoViewChangeArgs
+	DoViewChangeMsgs [NREPLICAS]DoViewChangeArgs
 	DoViewReplies    uint64
 	StartViewReplies uint64
 	StartViews       uint
@@ -89,7 +89,7 @@ type ViewChangeState struct {
 }
 
 type RecoveryState struct {
-	RecoveryResponseMsgs    [NREPLICAS + 1]RecoveryResponse
+	RecoveryResponseMsgs    [NREPLICAS]RecoveryResponse
 	RecoveryResponseReplies uint64
 	RecoveryResponses       uint
 	Nonce                   uint
@@ -257,7 +257,7 @@ func (t *RPCReplica) Commit(args *CommitArgs, reply *HeartbeatReply) error {
 }
 
 func (r *Replica) IsMaster() bool {
-	return r.Rstate.View%(NREPLICAS+1) == r.Rstate.ReplicaNumber
+	return r.Rstate.View%(NREPLICAS) == r.Rstate.ReplicaNumber
 }
 
 func (mstate *MasterState) Reset() {
@@ -335,7 +335,7 @@ func (r *Replica) MasterNeedsRenewal() {
 func (r *Replica) sendCommitMsgs() {
 	args := CommitArgs{r.Rstate.View, r.Rstate.CommitNumber}
 	r.Debug("sending commit: %d", r.Rstate.CommitNumber)
-	go r.sendAndRecv(NREPLICAS, "RPCReplica.Commit", args,
+	go r.sendAndRecv(NREPLICAS-1, "RPCReplica.Commit", args,
 		func() interface{} { return new(uint) },
 		func(reply interface{}) bool { r.Heartbeat(*(reply.(*uint))); return false })
 }
@@ -410,7 +410,7 @@ func (r *Replica) RunVR(command interface{}) {
 
 	args := PrepareArgs{r.Rstate.View, command, r.Rstate.OpNumber, r.Rstate.CommitNumber}
 	replyConstructor := func() interface{} { return new(PrepareReply) }
-	r.sendAndRecv(NREPLICAS, "RPCReplica.Prepare", args, replyConstructor, func(reply interface{}) bool {
+	r.sendAndRecv(NREPLICAS-1, "RPCReplica.Prepare", args, replyConstructor, func(reply interface{}) bool {
 		return r.handlePrepareOK(reply.(*PrepareReply))
 	})
 }
@@ -474,10 +474,10 @@ func (r *Replica) ClientConnect(repNum uint) error {
 
 // same as sendAndRecvTo but just picks any N replicas
 func (r *Replica) sendAndRecv(N int, msg string, args interface{}, newReply func() interface{}, handler func(reply interface{}) bool) {
-	assert(N <= NREPLICAS)
+	assert(N <= NREPLICAS-1)
 	reps := make([]uint, N)
 	i := 0
-	for repNum := uint(0); i < N && repNum < NREPLICAS+1; repNum++ {
+	for repNum := uint(0); i < N && repNum < NREPLICAS; repNum++ {
 		if repNum == r.Rstate.ReplicaNumber {
 			continue
 		}

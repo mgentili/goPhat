@@ -37,7 +37,7 @@ func (r *Replica) PrepareViewChange() {
 
 	args := StartViewChangeArgs{r.Rstate.View, r.Rstate.ReplicaNumber}
 
-	go r.sendAndRecv(NREPLICAS, "RPCReplica.StartViewChange", args,
+	go r.sendAndRecv(NREPLICAS-1, "RPCReplica.StartViewChange", args,
 		func() interface{} { return nil },
 		func(r interface{}) bool { return false })
 
@@ -75,7 +75,7 @@ func (t *RPCReplica) StartViewChange(args *StartViewChangeArgs, reply *int) erro
 		// otherwise, we can potentially ditch our master too early, violating
 		// the lease contract (which implies that a new master can't be
 		// elected until a majority of the old master's leases expire)
-		go r.sendAndRecv(NREPLICAS, "RPCReplica.StartViewChange", SVCargs,
+		go r.sendAndRecv(NREPLICAS-1, "RPCReplica.StartViewChange", SVCargs,
 			func() interface{} { return nil },
 			func(r interface{}) bool { return false })
 	}
@@ -87,8 +87,8 @@ func (t *RPCReplica) StartViewChange(args *StartViewChangeArgs, reply *int) erro
 		// only send DoViewChange if we're not the new master (can't actually send a message to ourself)
 		if !r.IsMaster() {
 			r.logVcstate("Sending DoViewChange")
-			log.Printf("Sending to: %d\n", r.Rstate.View%(NREPLICAS+1))
-			r.SendSync(r.Rstate.View%(NREPLICAS+1), "RPCReplica.DoViewChange", DVCargs, nil)
+			log.Printf("Sending to: %d\n", r.Rstate.View%(NREPLICAS))
+			r.SendSync(r.Rstate.View%(NREPLICAS), "RPCReplica.DoViewChange", DVCargs, nil)
 		}
 	}
 
@@ -123,7 +123,7 @@ func (t *RPCReplica) DoViewChange(args *DoViewChangeArgs, reply *int) error {
 
 		//send the StartView messages to all replicas
 		SVargs := StartViewArgs{r.Rstate.View, r.Phatlog, r.Rstate.OpNumber, r.Rstate.CommitNumber}
-		go r.sendAndRecv(NREPLICAS, "RPCReplica.StartView", SVargs,
+		go r.sendAndRecv(NREPLICAS-1, "RPCReplica.StartView", SVargs,
 			func() interface{} { return nil },
 			func(r interface{}) bool { return false })
 
@@ -157,7 +157,7 @@ func (r *Replica) calcMasterView() {
 	var maxNormalView uint = 0
 	var maxView uint = 0
 
-	for i := 0; i < NREPLICAS+1; i++ {
+	for i := 0; i < NREPLICAS; i++ {
 		//this is inefficient, but need to check for case where
 		//replica does not send message
 		if r.Vcstate.DoViewChangeMsgs[i].View > maxView {
