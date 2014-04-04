@@ -5,6 +5,15 @@ import (
 	"log"
 )
 
+type ViewChangeState struct {
+    DoViewChangeMsgs [NREPLICAS]DoViewChangeArgs
+    DoViewReplies    uint64
+    StartViewReplies uint64
+    StartViews       uint
+    DoViews          uint
+    NormalView       uint
+}
+
 type StartViewChangeArgs struct {
 	View          uint
 	ReplicaNumber uint
@@ -15,6 +24,15 @@ type StartViewArgs struct {
 	Log          *phatlog.Log
 	OpNumber     uint
 	CommitNumber uint
+}
+
+type DoViewChangeArgs struct {
+    View          uint
+    ReplicaNumber uint
+    Log           *phatlog.Log
+    NormalView    uint
+    OpNumber      uint
+    CommitNumber  uint
 }
 
 func (r *Replica) logVcstate(state string) {

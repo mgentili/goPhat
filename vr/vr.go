@@ -4,10 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"github.com/mgentili/goPhat/phatlog"
-	"log"
 	"net"
 	"net/rpc"
-	"runtime"
 	"time"
 )
 
@@ -33,8 +31,6 @@ const (
 	Recovery
 	ViewChange
 )
-
-type Command string
 
 type Replica struct {
 	Rstate   ReplicaState
@@ -79,45 +75,6 @@ type MasterState struct {
 	HeartbeatReplies uint64
 }
 
-type ViewChangeState struct {
-	DoViewChangeMsgs [NREPLICAS]DoViewChangeArgs
-	DoViewReplies    uint64
-	StartViewReplies uint64
-	StartViews       uint
-	DoViews          uint
-	NormalView       uint
-}
-
-type RecoveryState struct {
-	RecoveryResponseMsgs    [NREPLICAS]RecoveryResponse
-	RecoveryResponseReplies uint64
-	RecoveryResponses       uint
-	Nonce                   uint
-}
-
-type DoViewChangeArgs struct {
-	View          uint
-	ReplicaNumber uint
-	Log           *phatlog.Log
-	NormalView    uint
-	OpNumber      uint
-	CommitNumber  uint
-}
-
-type RecoveryArgs struct {
-	ReplicaNumber uint
-	Nonce         uint
-}
-
-type RecoveryResponse struct {
-	View          uint
-	Nonce         uint
-	Log           *phatlog.Log
-	OpNumber      uint
-	CommitNumber  uint
-	ReplicaNumber uint
-}
-
 type PrepareArgs struct {
 	View         uint
 	Command      interface{}
@@ -142,26 +99,9 @@ type HeartbeatReply struct {
     Lease time.Time
 }
 
-// Go doesn't have assertions...
-func assert(b bool) {
-	if !b {
-		_, file, line, _ := runtime.Caller(1)
-		log.Fatalf("assertion failed: %s:%d", file, line)
-	}
-}
-
-func wrongView() error {
-	return errors.New("view numbers don't match")
-}
-
 func (r *Replica) addLog(command interface{}) {
 	r.Phatlog.Add(r.Rstate.OpNumber, command)
 	r.Debug("adding command to log")
-}
-
-func (r *Replica) Debug(format string, args ...interface{}) {
-	str := fmt.Sprintf("Replica %d: %s", r.Rstate.ReplicaNumber, format)
-	log.Printf(str, args...)
 }
 
 func (r *Replica) doCommit(cn uint) {
@@ -256,34 +196,6 @@ func (t *RPCReplica) Commit(args *CommitArgs, reply *HeartbeatReply) error {
 	return nil
 }
 
-func (r *Replica) IsMaster() bool {
-	return r.Rstate.View%(NREPLICAS) == r.Rstate.ReplicaNumber
-}
-
-func (mstate *MasterState) Reset() {
-	mstate.A = 0
-	mstate.Replies = 0
-}
-
-func (mstate *MasterState) ExtendNeedsRenewal(newTime time.Time) {
-	mstate.Timer.Reset((newTime - time.Now()) / RENEW_FACTOR + time.Now())
-}
-
-func (r *Replica) Shutdown() {
-	r.Listener.Close()
-	r.Rstate.Timer.Stop()
-	r.Mstate.Timer.Stop()
-	r.Mstate.Reset()
-	r.IsShutdown = true
-}
-
-// closes connection to the given replica number
-func (r *Replica) DestroyConns(repNum uint) {
-	if r.Clients[repNum] != nil {
-		r.Clients[repNum].Close()
-	}
-}
-
 func (a []time.Time) Len() int { return len(a) }
 func (a []time.Time) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
 func (a []time.Time) Less(i, j int) bool { return a[i].Before(a[j])  }
@@ -298,6 +210,8 @@ func SortTimes(times map[uint]time.Time) []time.Time {
     sort.Sort(vals)
 }
 
+
+// handle a given replica's heartbeat response
 func (r *Replica) Heartbeat(replica uint, newTime time.Time) {
 	assert(r.IsMaster())
 
