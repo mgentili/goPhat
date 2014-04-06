@@ -4,6 +4,7 @@ import (
 	"encoding/gob"
 	"errors"
 	"github.com/mgentili/goPhat/phatdb"
+	"github.com/mgentili/goPhat/level_log"
 	"log"
 	"net/rpc"
 	"os"
@@ -14,10 +15,13 @@ const (
 	DefaultTimeout = time.Duration(2) * time.Second
 	ClientTimeout  = time.Duration(3) * time.Second
 	ServerTimeout  = time.Duration(2) * time.Second
-	DEBUG = true
+	DEBUG = 0
+	TRACK = 1
+	DEBUG_LOCATION = "debug.txt"
+	TRACK_LOCATION = "track.txt"
 )
 
-var client_log *log.Logger
+var client_log *level_log.Logger
 
 func (c *PhatClient) StringToError(s string) error {
 	c.Debug("Convert to err:", s)
@@ -36,18 +40,24 @@ type PhatClient struct {
 	RpcClient       *rpc.Client //client connection to server (usually the master)
 }
 
-type Null struct{}
+func SetupClientLog() {
+	if client_log == nil {
+		levelsToLog := []int{DEBUG, TRACK}
+		client_log = level_log.NewLL(os.Stdout, "CLIENT: ")
+		client_log.SetLevelsToLog(levelsToLog)
 
-type LockType string
-type Sequencer int
+		err := client_log.SetWriteLocationFromString(DEBUG, DEBUG_LOCATION)
+		log.Print(err)
+		err = client_log.SetWriteLocationFromString(TRACK, TRACK_LOCATION)
+		log.Print(err)
+	}
+}
 
 // NewClient creates a new client connected to the server with given id
 // and attempts to connect to the master server
 func NewClient(servers []string, id uint) (*PhatClient, error) {
-	if client_log == nil {
-		client_log = log.New(os.Stdout, "CLIENT: ", log.Ltime|log.Lmicroseconds)
-	}
 
+	SetupClientLog() // TODO: Where should this go?
 	c := new(PhatClient)
 
 	// We need to register the DataNode and StatNode before we can use them in gob
@@ -75,10 +85,7 @@ func NewClient(servers []string, id uint) (*PhatClient, error) {
 }
 
 func (c *PhatClient) Debug(format string, args ...interface{}) {
-	if DEBUG {
-		client_log.Printf(format, args...)
-	}
-	
+	client_log.Printf(DEBUG, format, args...)
 }
 
 // connectToAnyServer connects client to server with given index
@@ -98,7 +105,7 @@ func (c *PhatClient) connectToMaster() error {
 
 	//connect to any server, and get the master id
 	for i := uint(0); i < c.NumServers; i = i + 1 {
-		err := c.RpcClient.Call("Server.GetMaster", new(Null), &c.MasterId)
+		err := c.RpcClient.Call("Server.GetMaster", new(struct{}), &c.MasterId)
 		if err == nil {
 			c.Debug("The master is %d", c.MasterId)
 			break
