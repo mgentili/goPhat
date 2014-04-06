@@ -4,18 +4,20 @@ import (
 	"errors"
 	"fmt"
 	"github.com/mgentili/goPhat/phatlog"
-	"log"
 	"net"
 	"net/rpc"
-	"runtime"
 	"time"
 )
 
 const (
-	F           = 1
-	NREPLICAS   = 2 * F // doesn't count the master as a replica
-	LEASE       = 2000 * time.Millisecond
-	MAX_RENEWAL = LEASE / 2
+	F         = 1
+	NREPLICAS = 2*F + 1
+	LEASE     = 2000 * time.Millisecond
+	// how soon master renews lease before actual expiry date. e.g. if lease expires in 100 seconds
+	// the master starts trying to renew the lease after 100/RENEW_FACTOR seconds
+	RENEW_FACTOR = 2
+	// the margin we allow different replicas' clocks to be off by and still have correct behavior
+	MAX_CLOCK_DRIFT = LEASE / 10
 	// don't resend requests too much, as it will just end up flooding
 	// crashed nodes when they come back online
 	MAX_TRIES = 2
@@ -30,8 +32,6 @@ const (
 	ViewChange
 )
 
-type Command string
-
 type Replica struct {
 	Rstate   ReplicaState
 	Mstate   MasterState
@@ -39,7 +39,7 @@ type Replica struct {
 	Rcvstate RecoveryState
 	// list of replica addresses, in sorted order
 	Config  []string
-	Clients [NREPLICAS + 1]*rpc.Client
+	Clients [NREPLICAS]*rpc.Client
 	Phatlog *phatlog.Log
 	// function to call to commit to a command
 	CommitFunc func(command interface{})
@@ -70,48 +70,8 @@ type MasterState struct {
 	// bit vector of what replicas have replied
 	Replies uint64
 
-	Timer            *time.Timer
-	Heartbeats       int
-	HeartbeatReplies uint64
-}
-
-type ViewChangeState struct {
-	DoViewChangeMsgs [NREPLICAS + 1]DoViewChangeArgs
-	DoViewReplies    uint64
-	StartViewReplies uint64
-	StartViews       uint
-	DoViews          uint
-	NormalView       uint
-}
-
-type RecoveryState struct {
-	RecoveryResponseMsgs    [NREPLICAS + 1]RecoveryResponseArgs
-	RecoveryResponseReplies uint64
-	RecoveryResponses       uint
-	Nonce                   uint
-}
-
-type DoViewChangeArgs struct {
-	View          uint
-	ReplicaNumber uint
-	Log           *phatlog.Log
-	NormalView    uint
-	OpNumber      uint
-	CommitNumber  uint
-}
-
-type RecoveryArgs struct {
-	ReplicaNumber uint
-	Nonce         uint
-}
-
-type RecoveryResponseArgs struct {
-	View          uint
-	Nonce         uint
-	Log           *phatlog.Log
-	OpNumber      uint
-	CommitNumber  uint
-	ReplicaNumber uint
+	Timer      *time.Timer
+	Heartbeats map[uint]time.Time
 }
 
 type PrepareArgs struct {
@@ -125,6 +85,7 @@ type PrepareReply struct {
 	View          uint
 	OpNumber      uint
 	ReplicaNumber uint
+	Lease         time.Time
 }
 
 type CommitArgs struct {
@@ -132,49 +93,9 @@ type CommitArgs struct {
 	CommitNumber uint
 }
 
-// Go doesn't have assertions...
-func assert(b bool) {
-	if !b {
-		_, file, line, _ := runtime.Caller(1)
-		log.Fatalf("assertion failed: %s:%d", file, line)
-	}
-}
-
-func wrongView() error {
-	return errors.New("view numbers don't match")
-}
-
-func (r *Replica) addLog(command interface{}) {
-	r.Phatlog.Add(r.Rstate.OpNumber, command)
-	r.Debug("adding command to log")
-}
-
-func (r *Replica) Debug(format string, args ...interface{}) {
-	str := fmt.Sprintf("Replica %d: %s", r.Rstate.ReplicaNumber, format)
-	log.Printf(str, args...)
-}
-
-func (r *Replica) doCommit(cn uint) {
-	if cn <= r.Rstate.CommitNumber {
-		r.Debug("Ignoring commit %d, already commited up to %d", cn, r.Rstate.CommitNumber)
-		return
-	} else if cn > r.Rstate.OpNumber {
-		r.Debug("need to do state transfer. only at op %d in log but got commit for %d\n", r.Rstate.OpNumber, cn)
-		r.PrepareRecovery()
-		return
-	} else if cn > r.Rstate.CommitNumber+1 {
-		r.Debug("need to do extra commits")
-		// we're behind (but have all the log entries, so don't need to state
-		// transfer), so catch up by committing up to the current commit
-		for i := r.Rstate.CommitNumber + 1; i < cn; i++ {
-			r.doCommit(i)
-		}
-	}
-	r.Debug("commiting %d", r.Rstate.CommitNumber+1)
-	if r.CommitFunc != nil {
-		r.CommitFunc(r.Phatlog.GetCommand(r.Rstate.CommitNumber + 1))
-	}
-	r.Rstate.CommitNumber++
+type HeartbeatReply struct {
+	ReplicaNumber uint
+	Lease         time.Time
 }
 
 // RPCs
@@ -198,8 +119,6 @@ func (t *RPCReplica) Prepare(args *PrepareArgs, reply *PrepareReply) error {
 		return errors.New("not in normal mode")
 	}
 
-	r.Rstate.ExtendLease()
-
 	if args.OpNumber <= r.Rstate.OpNumber {
 		// master must be resending some old request?
 		return errors.New("old op number")
@@ -219,12 +138,15 @@ func (t *RPCReplica) Prepare(args *PrepareArgs, reply *PrepareReply) error {
 
 	reply.View = r.Rstate.View
 	reply.OpNumber = r.Rstate.OpNumber
+
+	reply.Lease = time.Now().Add(LEASE)
 	reply.ReplicaNumber = r.Rstate.ReplicaNumber
+	r.Rstate.ExtendLease(reply.Lease)
 
 	return nil
 }
 
-func (t *RPCReplica) Commit(args *CommitArgs, reply *uint) error {
+func (t *RPCReplica) Commit(args *CommitArgs, reply *HeartbeatReply) error {
 	r := t.R
 
 	if args.View > r.Rstate.View {
@@ -236,97 +158,79 @@ func (t *RPCReplica) Commit(args *CommitArgs, reply *uint) error {
 		return wrongView()
 	}
 
-	r.Rstate.ExtendLease()
-
-	*reply = r.Rstate.ReplicaNumber
-
 	r.doCommit(args.CommitNumber)
+
+	reply.ReplicaNumber = r.Rstate.ReplicaNumber
+	reply.Lease = time.Now().Add(LEASE)
+	r.Rstate.ExtendLease(reply.Lease)
 
 	return nil
 }
 
-func (r *Replica) IsMaster() bool {
-	return r.Rstate.View%(NREPLICAS+1) == r.Rstate.ReplicaNumber
-}
-
-func (mstate *MasterState) Reset() {
-	mstate.A = 0
-	mstate.Replies = 0
-	mstate.Heartbeats = 0
-	mstate.HeartbeatReplies = 0
-}
-
-func (mstate *MasterState) ExtendNeedsRenewal() {
-	mstate.Timer.Reset(MAX_RENEWAL)
-}
-
-func (r *Replica) Shutdown() {
-	r.Listener.Close()
-	r.Rstate.Timer.Stop()
-	r.Mstate.Timer.Stop()
-	r.Mstate.Reset()
-	r.IsShutdown = true
-}
-
-// closes connection to the given replica number
-func (r *Replica) DestroyConns(repNum uint) {
-	if r.Clients[repNum] != nil {
-		r.Clients[repNum].Close()
-	}
-}
-
-func (r *Replica) Heartbeat(replica uint) {
+func (r *Replica) RunVR(command interface{}) {
 	assert(r.IsMaster())
 
-	if ((1 << replica) & r.Mstate.HeartbeatReplies) != 0 {
-		return
-	}
+	assert(r.Rstate.OpNumber >= r.Rstate.CommitNumber)
 
-	r.Mstate.HeartbeatReplies |= 1 << replica
-	r.Mstate.Heartbeats++
+	r.Mstate.Reset()
 
-	// we've gotten a majority to renew our lease!
-	if r.Mstate.Heartbeats == F {
-		r.Mstate.Heartbeats = 0
-		r.Mstate.HeartbeatReplies = 0
-		// don't need to try renewing for a while
-		r.Mstate.ExtendNeedsRenewal()
-		// update our own lease
-		// TODO: this lease is overly optimistic, as it ends LEASE time
-		// from *now*, when in fact our lease will end when the first
-		// replica that sent a heartbeat's lease ends (which is earlier)
-		r.Rstate.ExtendLease()
-	}
+	r.Rstate.OpNumber++
+	r.addLog(command)
+
+	args := PrepareArgs{r.Rstate.View, command, r.Rstate.OpNumber, r.Rstate.CommitNumber}
+	replyConstructor := func() interface{} { return new(PrepareReply) }
+	r.sendAndRecv(NREPLICAS-1, "RPCReplica.Prepare", args, replyConstructor, func(reply interface{}) bool {
+		return r.handlePrepareOK(reply.(*PrepareReply))
+	})
 }
 
-func (rstate *ReplicaState) ExtendLease() {
-	rstate.Timer.Reset(LEASE)
-}
-
-func (r *Replica) ReplicaTimeout() {
-	if r.IsMaster() {
-		r.Debug("we couldn't stay master :(,ViewNum:%d\n", r.Rstate.View)
-		// TODO: can't handle read requests anymore
+func (r *Replica) handlePrepareOK(reply *PrepareReply) bool {
+	r.Debug("got response: %+v\n", reply)
+	if reply.View != r.Rstate.View {
+		return false
 	}
-	r.Debug("Timed out, trying view change")
-	r.PrepareViewChange()
-	// start counting again so we timeout if the new replica can't become master
-	r.Rstate.ExtendLease()
-}
 
-func (r *Replica) MasterNeedsRenewal() {
-	if r.IsShutdown {
-		return
+	r.Heartbeat(reply.ReplicaNumber, reply.Lease)
+
+	if reply.OpNumber != r.Rstate.OpNumber {
+		return false
 	}
+
+	if ((1 << reply.ReplicaNumber) & r.Mstate.Replies) != 0 {
+		return false
+	}
+
+	r.Debug("got suitable response\n")
+
+	r.Mstate.Replies |= 1 << reply.ReplicaNumber
+	r.Mstate.A++
+
+	r.Debug("new master state: %v\n", r.Mstate)
+
+	// only need F responses (we implicitly got one from ourselves)
+	if r.Mstate.A != F {
+		return r.Mstate.A >= F
+	}
+
+	// we've now gotten a majority
+	r.doCommit(r.Rstate.OpNumber)
+
+	// TODO: we shouldn't really need to do this (only on periods of inactivity)
 	r.sendCommitMsgs()
+
+	return true
 }
 
 func (r *Replica) sendCommitMsgs() {
 	args := CommitArgs{r.Rstate.View, r.Rstate.CommitNumber}
 	r.Debug("sending commit: %d", r.Rstate.CommitNumber)
-	go r.sendAndRecv(NREPLICAS, "RPCReplica.Commit", args,
-		func() interface{} { return new(uint) },
-		func(reply interface{}) bool { r.Heartbeat(*(reply.(*uint))); return false })
+	go r.sendAndRecv(NREPLICAS-1, "RPCReplica.Commit", args,
+		func() interface{} { return new(HeartbeatReply) },
+		func(reply interface{}) bool {
+			heartbeat := reply.(*HeartbeatReply)
+			r.Heartbeat(heartbeat.ReplicaNumber, heartbeat.Lease)
+			return false
+		})
 }
 
 func RunAsReplica(i uint, config []string) *Replica {
@@ -349,8 +253,9 @@ func (r *Replica) BecomeMaster() {
 	// TODO: anything else we need to do to become the master?
 	r.Mstate.Reset()
 	// resets master's timer
-	r.Mstate.ExtendNeedsRenewal()
-	r.Rstate.ExtendLease()
+	// TODO: we can't just assume we have the lease like this
+	r.Mstate.ExtendNeedsRenewal(time.Now().Add(LEASE - MAX_CLOCK_DRIFT))
+	r.Rstate.ExtendLease(time.Now().Add(LEASE - MAX_CLOCK_DRIFT))
 }
 
 func (r *Replica) ReplicaInit() {
@@ -361,9 +266,9 @@ func (r *Replica) ReplicaInit() {
 	}
 	r.Listener = ln
 	r.Rstate.Timer = time.AfterFunc(LEASE, r.ReplicaTimeout)
-	// set up master time even as a replica, so that if we do become master
+	// set up master timer even as a replica, so that if we do become master
 	// the timer object already exists
-	r.Mstate.Timer = time.AfterFunc(MAX_RENEWAL, r.MasterNeedsRenewal)
+	r.Mstate.Timer = time.AfterFunc(LEASE/RENEW_FACTOR, r.MasterNeedsRenewal)
 	r.Mstate.Timer.Stop()
 	r.Phatlog = phatlog.EmptyLog()
 }
@@ -386,63 +291,32 @@ func (r *Replica) ReplicaRun() {
 	}
 }
 
-func (r *Replica) RunVR(command interface{}) {
-	assert(r.IsMaster() /*&& holdLease()*/)
-
-	// FIXME: right now we enforce that the last operation has been committed before starting a new one
-	assert(r.Rstate.OpNumber == r.Rstate.CommitNumber)
-
-	r.Mstate.Reset()
-
-	r.Rstate.OpNumber++
-	r.addLog(command)
-
-	args := PrepareArgs{r.Rstate.View, command, r.Rstate.OpNumber, r.Rstate.CommitNumber}
-	replyConstructor := func() interface{} { return new(PrepareReply) }
-	r.sendAndRecv(NREPLICAS, "RPCReplica.Prepare", args, replyConstructor, func(reply interface{}) bool {
-		return r.handlePrepareOK(reply.(*PrepareReply))
-	})
+func (r *Replica) addLog(command interface{}) {
+	r.Phatlog.Add(r.Rstate.OpNumber, command)
+	r.Debug("adding command to log")
 }
 
-func (r *Replica) handlePrepareOK(reply *PrepareReply) bool {
-	r.Debug("got response: %+v\n", reply)
-	if reply.View != r.Rstate.View {
-		return false
+func (r *Replica) doCommit(cn uint) {
+	if cn <= r.Rstate.CommitNumber {
+		//r.Debug("Ignoring commit %d, already commited up to %d", cn, r.Rstate.CommitNumber)
+		return
+	} else if cn > r.Rstate.OpNumber {
+		r.Debug("need to do state transfer. only at op %d in log but got commit for %d\n", r.Rstate.OpNumber, cn)
+		r.PrepareRecovery()
+		return
+	} else if cn > r.Rstate.CommitNumber+1 {
+		r.Debug("need to do extra commits")
+		// we're behind (but have all the log entries, so don't need to state
+		// transfer), so catch up by committing up to the current commit
+		for i := r.Rstate.CommitNumber + 1; i < cn; i++ {
+			r.doCommit(i)
+		}
 	}
-
-	r.Heartbeat(reply.ReplicaNumber)
-
-	if reply.OpNumber != r.Rstate.OpNumber {
-		return false
+	r.Debug("commiting %d", r.Rstate.CommitNumber+1)
+	if r.CommitFunc != nil {
+		r.CommitFunc(r.Phatlog.GetCommand(r.Rstate.CommitNumber + 1))
 	}
-
-	if ((1 << reply.ReplicaNumber) & r.Mstate.Replies) != 0 {
-		return false
-	}
-
-	r.Debug("got suitable response\n")
-
-	r.Mstate.Replies |= 1 << reply.ReplicaNumber
-	r.Mstate.A++
-
-	r.Debug("new master state: %v\n", r.Mstate)
-
-	// we've implicitly gotten a response from ourself already
-	if r.Mstate.A != F {
-		return r.Mstate.A >= F
-	}
-
-	// we've now gotten a majority
-	r.doCommit(r.Rstate.CommitNumber + 1)
-
-	// TODO: we shouldn't really need to do this (only on periods of inactivity)
-	r.sendCommitMsgs()
-
-	return true
-}
-
-func (r *Replica) SendSync(repNum uint, msg string, args interface{}, reply interface{}) {
-	r.sendAndRecvTo([]uint{repNum}, msg, args, func() interface{} { return reply }, func(r interface{}) bool { return false })
+	r.Rstate.CommitNumber++
 }
 
 func (r *Replica) ClientConnect(repNum uint) error {
@@ -461,12 +335,17 @@ func (r *Replica) ClientConnect(repNum uint) error {
 	return err
 }
 
+// send RPC (and retry if needed) to the given replica
+func (r *Replica) SendOne(repNum uint, msg string, args interface{}, reply interface{}) {
+	r.sendAndRecvTo([]uint{repNum}, msg, args, func() interface{} { return reply }, func(r interface{}) bool { return false })
+}
+
 // same as sendAndRecvTo but just picks any N replicas
 func (r *Replica) sendAndRecv(N int, msg string, args interface{}, newReply func() interface{}, handler func(reply interface{}) bool) {
-	assert(N <= NREPLICAS)
+	assert(N <= NREPLICAS-1)
 	reps := make([]uint, N)
 	i := 0
-	for repNum := uint(0); i < N && repNum < NREPLICAS+1; repNum++ {
+	for repNum := uint(0); i < N && repNum < NREPLICAS; repNum++ {
 		if repNum == r.Rstate.ReplicaNumber {
 			continue
 		}
