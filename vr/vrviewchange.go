@@ -3,7 +3,17 @@ package vr
 import (
 	"github.com/mgentili/goPhat/phatlog"
 	"log"
+	"time"
 )
+
+type ViewChangeState struct {
+	DoViewChangeMsgs [NREPLICAS]DoViewChangeArgs
+	DoViewReplies    uint64
+	StartViewReplies uint64
+	StartViews       uint
+	DoViews          uint
+	NormalView       uint
+}
 
 type StartViewChangeArgs struct {
 	View          uint
@@ -17,6 +27,15 @@ type StartViewArgs struct {
 	CommitNumber uint
 }
 
+type DoViewChangeArgs struct {
+	View          uint
+	ReplicaNumber uint
+	Log           *phatlog.Log
+	NormalView    uint
+	OpNumber      uint
+	CommitNumber  uint
+}
+
 func (r *Replica) logVcstate(state string) {
 	log.Printf("Replica %d at state %s: VN:%d, SVs:%d, DVs:%d\n", r.Rstate.ReplicaNumber, state, r.Rstate.View, r.Vcstate.StartViews, r.Vcstate.DoViews)
 }
@@ -25,21 +44,19 @@ func (r *Replica) replicaStateInfo() {
 	log.Printf("Replica %d: ViewNumber:%d, OpNumber:%d, CommitNumber:%d\n", r.Rstate.ReplicaNumber, r.Rstate.View, r.Rstate.OpNumber, r.Rstate.CommitNumber)
 }
 
+func (r *Replica) resetVcstate() {
+	r.Vcstate = ViewChangeState{}
+}
+
 //A replica notices that a viewchange is needed - starts off the messages
 func (r *Replica) PrepareViewChange() {
-
-	//timeout occurs but we are already in viewchange
-	if r.Rstate.Status == ViewChange {
-		return
-	}
-
 	r.Rstate.Status = ViewChange
 	r.Rstate.View++
 	r.logVcstate("PrepareViewChange")
 
 	args := StartViewChangeArgs{r.Rstate.View, r.Rstate.ReplicaNumber}
 
-	go r.sendAndRecv(NREPLICAS, "RPCReplica.StartViewChange", args,
+	go r.sendAndRecv(NREPLICAS-1, "RPCReplica.StartViewChange", args,
 		func() interface{} { return nil },
 		func(r interface{}) bool { return false })
 
@@ -77,7 +94,7 @@ func (t *RPCReplica) StartViewChange(args *StartViewChangeArgs, reply *int) erro
 		// otherwise, we can potentially ditch our master too early, violating
 		// the lease contract (which implies that a new master can't be
 		// elected until a majority of the old master's leases expire)
-		go r.sendAndRecv(NREPLICAS, "RPCReplica.StartViewChange", SVCargs,
+		go r.sendAndRecv(NREPLICAS-1, "RPCReplica.StartViewChange", SVCargs,
 			func() interface{} { return nil },
 			func(r interface{}) bool { return false })
 	}
@@ -89,8 +106,8 @@ func (t *RPCReplica) StartViewChange(args *StartViewChangeArgs, reply *int) erro
 		// only send DoViewChange if we're not the new master (can't actually send a message to ourself)
 		if !r.IsMaster() {
 			r.logVcstate("Sending DoViewChange")
-			log.Printf("Sending to: %d\n", r.Rstate.View%(NREPLICAS+1))
-			r.SendSync(r.Rstate.View%(NREPLICAS+1), "RPCReplica.DoViewChange", DVCargs, nil)
+			log.Printf("Sending to: %d\n", r.Rstate.View%(NREPLICAS))
+			r.SendOne(r.Rstate.View%(NREPLICAS), "RPCReplica.DoViewChange", DVCargs, nil)
 		}
 	}
 
@@ -125,7 +142,7 @@ func (t *RPCReplica) DoViewChange(args *DoViewChangeArgs, reply *int) error {
 
 		//send the StartView messages to all replicas
 		SVargs := StartViewArgs{r.Rstate.View, r.Phatlog, r.Rstate.OpNumber, r.Rstate.CommitNumber}
-		go r.sendAndRecv(NREPLICAS, "RPCReplica.StartView", SVargs,
+		go r.sendAndRecv(NREPLICAS-1, "RPCReplica.StartView", SVargs,
 			func() interface{} { return nil },
 			func(r interface{}) bool { return false })
 
@@ -141,9 +158,10 @@ func (t *RPCReplica) StartView(args *DoViewChangeArgs, reply *int) error {
 	r.Rstate.OpNumber = args.OpNumber
 	r.Rstate.CommitNumber = args.CommitNumber
 	r.Rstate.Status = Normal
-	r.Rstate.ExtendLease()
+	r.Rstate.ExtendLease(time.Now().Add(LEASE))
 
 	r.replicaStateInfo()
+	r.resetVcstate()
 	r.logVcstate("ViewChangeComplete!")
 
 	return nil
@@ -158,7 +176,7 @@ func (r *Replica) calcMasterView() {
 	var maxNormalView uint = 0
 	var maxView uint = 0
 
-	for i := 0; i < NREPLICAS+1; i++ {
+	for i := 0; i < NREPLICAS; i++ {
 		//this is inefficient, but need to check for case where
 		//replica does not send message
 		if r.Vcstate.DoViewChangeMsgs[i].View > maxView {
