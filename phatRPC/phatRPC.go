@@ -122,12 +122,14 @@ func (s *Server) RPCDB(args *phatdb.DBCommand, reply *phatdb.DBResponse) error {
 		argsWithChannel := phatdb.DBCommandWithChannel{args, make(chan *phatdb.DBResponse, 1)}
 		switch args.Command {
 		//if the command is a write, then we need to go through paxos
-		case "CREATE", "DELETE", "SET":
+		case "CREATE", "DELETE", "SET", "GET":
 			Debug("Need to send command via Paxos")
 			s.ReplicaServer.RunVR(argsWithChannel)
 			Debug("Command committed, waiting for DB response")
 			result := <-argsWithChannel.Done
 			//Debug("Result is: %v", *result.Error, *result.Reply)
+			//reply.Error = result.Error
+			//reply.Reply = "Hello world"
 			*reply = *result
 			Debug("Finished write-only")
 			//paxos(args)
@@ -140,6 +142,7 @@ func (s *Server) RPCDB(args *phatdb.DBCommand, reply *phatdb.DBResponse) error {
 			s.InputChan <- argsWithChannel
 			result := <-argsWithChannel.Done
 			*reply = *result
+
 			Debug("Finished read-only")
 		}
 	}

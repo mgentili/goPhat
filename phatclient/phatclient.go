@@ -42,7 +42,7 @@ type PhatClient struct {
 func SetupClientLog() {
 	if client_log == nil {
 		levelsToLog := []int{DEBUG, TRACK}
-		client_log = level_log.NewLL(os.Stdout, "CLIENT: ")
+		client_log = level_log.NewLL(os.Stdout, "c: ")
 		client_log.SetLevelsToLog(levelsToLog)
 
 		/*err := client_log.SetWriteLocationFromString(DEBUG, DEBUG_LOCATION)

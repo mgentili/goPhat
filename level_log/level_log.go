@@ -76,7 +76,6 @@ func itoa(buf *[]byte, i int, wid int) {
 
 // formatHeaders formats the prefix information for each output line
 func (l *Logger) formatHeader(buf *[]byte, t time.Time, file string, line int) {
-	*buf = append(*buf, l.prefix...)
 	if l.flag&(Ldate|Ltime|Lmicroseconds) != 0 {
 		if l.flag&Ldate != 0 {
 			year, month, day := t.Date()
@@ -117,6 +116,7 @@ func (l *Logger) formatHeader(buf *[]byte, t time.Time, file string, line int) {
 		itoa(buf, line, -1)
 		*buf = append(*buf, ": "...)
 	}
+	*buf = append(*buf, l.prefix...)
 }
 
 // helper function for outputting only specific levels

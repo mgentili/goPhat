@@ -19,15 +19,20 @@ const (
 	INIT_SERVER_PORT = 9000
 	INIT_RPC_PORT    = 6000
 	START_NODE_FILE  = "fuzz_testing_exec"
+	ALIVE = 0
+	KILLED = 1
+	STOPPED = 2
 )
 
 type TestMaster struct {
 	ReplicaProcesses []*exec.Cmd
 	MasterClient     *phatclient.PhatClient
 	NumAliveReplicas int
+	NumReplicas int
 	NumSentMessages  int
 	Server_Locations []string
 	RPC_Locations    []string
+	ReplicaStatus []int
 }
 
 var cleanup func()
@@ -46,6 +51,8 @@ func (t *TestMaster) Setup(n int) {
 	t.Server_Locations = make([]string, n)
 	t.RPC_Locations = make([]string, n)
 	t.ReplicaProcesses = make([]*exec.Cmd, n)
+	t.ReplicaStatus = make([]int, n)
+	t.NumReplicas = n
 
 	for i := 0; i < n; i++ {
 		t.Server_Locations[i] = fmt.Sprintf("%s:%d", HOST, INIT_SERVER_PORT+i)
@@ -84,31 +91,51 @@ func (t *TestMaster) StartNode(i int) error {
 		DieClean("Starting node failed")
 		return err
 	}
-
+	t.ReplicaStatus[i] = ALIVE
 	t.ReplicaProcesses[i] = cmd
 
 	return nil
 }
 
+func (t *TestMaster) checkValidCommand(i int) bool {
+	return (t.NumAliveReplicas-1)*2 > t.NumReplicas && t.ReplicaStatus[i] == ALIVE
+}
+
 // KillNode kills a given node (kills the corresponding process)
 func (t *TestMaster) KillNode(i int) error {
+	if !t.checkValidCommand(i) {
+		return nil
+	}
 	log.Printf("Killing node %d\n", i)
 	err := t.ReplicaProcesses[i].Process.Kill()
 	if err != nil {
 		DieClean(err)
 	}
 	t.NumAliveReplicas -= 1
+	t.ReplicaStatus[i] = KILLED
 	return err
 }
 
 // StopNode stops a given node (stops the corresponding process)
-func (t *TestMaster) StopNode(i int) {
+func (t *TestMaster) StopNode(i int) error {
+	if !t.checkValidCommand(i) {
+		return nil
+	}
 	t.ReplicaProcesses[i].Process.Signal(syscall.SIGSTOP)
+	t.NumAliveReplicas -= 1
+	t.ReplicaStatus[i] = STOPPED
+	return nil
 }
 
 // ResumeNode resumes a given node (must have been stopped before)
-func (t *TestMaster) ResumeNode(i int) {
+func (t *TestMaster) ResumeNode(i int) error {
+	if t.ReplicaStatus[i] != STOPPED {
+		return nil
+	}
 	t.ReplicaProcesses[i].Process.Signal(syscall.SIGCONT)
+	t.NumAliveReplicas += 1
+	t.ReplicaStatus[i] = ALIVE
+	return nil
 }
 
 func (t *TestMaster) SendCreateMessage() {
