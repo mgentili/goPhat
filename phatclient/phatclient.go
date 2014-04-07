@@ -5,7 +5,6 @@ import (
 	"errors"
 	"github.com/mgentili/goPhat/phatdb"
 	"github.com/mgentili/goPhat/level_log"
-	"log"
 	"net/rpc"
 	"os"
 	"time"
@@ -46,10 +45,10 @@ func SetupClientLog() {
 		client_log = level_log.NewLL(os.Stdout, "CLIENT: ")
 		client_log.SetLevelsToLog(levelsToLog)
 
-		err := client_log.SetWriteLocationFromString(DEBUG, DEBUG_LOCATION)
+		/*err := client_log.SetWriteLocationFromString(DEBUG, DEBUG_LOCATION)
 		log.Print(err)
 		err = client_log.SetWriteLocationFromString(TRACK, TRACK_LOCATION)
-		log.Print(err)
+		log.Print(err)*/
 	}
 }
 
@@ -67,6 +66,7 @@ func NewClient(servers []string, id uint) (*PhatClient, error) {
 	c.ServerLocations = servers
 	c.NumServers = uint(len(servers))
 	c.Id = id
+	c.MasterId = 0
 	c.Timeout = DefaultTimeout
 
 	err := c.connectToServer(id)
@@ -101,7 +101,6 @@ func (c *PhatClient) connectToServer(index uint) error {
 
 // connectToMaster connects client to the current master node
 func (c *PhatClient) connectToMaster() error {
-	c.Debug("Connecting to the master...%d", c.MasterId)
 
 	//connect to any server, and get the master id
 	for i := uint(0); i < c.NumServers; i = i + 1 {

@@ -5,15 +5,15 @@ import (
 	"errors"
 	"github.com/mgentili/goPhat/phatdb"
 	"github.com/mgentili/goPhat/vr"
-	"log"
+	"github.com/mgentili/goPhat/level_log"
 	"net"
 	"net/rpc"
 	"os"
 )
 
-const DEBUG = true
+const DEBUG = 0
 
-var RPC_log *log.Logger
+var RPC_log *level_log.Logger
 
 type Server struct {
 	ReplicaServer   *vr.Replica
@@ -24,25 +24,27 @@ type Server struct {
 type Null struct{}
 
 func Debug(format string, args ...interface{}) {
-	if DEBUG {
-		RPC_log.Printf(format, args...)
-	}
+	RPC_log.Printf(DEBUG, format, args...)
 }
 
 // startDB starts the database for the server
 func (s *Server) startDB() {
-	Debug("Starting DB")
 	input := make(chan phatdb.DBCommandWithChannel)
 	s.InputChan = input
 	go phatdb.DatabaseServer(input)
 }
 
+func SetupRPCLog() {
+	if RPC_log == nil {
+		levelsToLog := []int{DEBUG}
+		RPC_log = level_log.NewLL(os.Stdout, "RPC: ")
+		RPC_log.SetLevelsToLog(levelsToLog);
+	}
+}
 // startServer starts a TCP server that accepts client requests at the given port
 // and has information about the replica server
 func StartServer(address string, replica *vr.Replica) (*rpc.Server, error) {
-	if RPC_log == nil {
-		RPC_log = log.New(os.Stdout, "RPC: ", log.Ltime|log.Lmicroseconds)
-	}
+	SetupRPCLog()
 	listener, err := net.Listen("tcp", address)
 	if err != nil {
 		return nil, err
@@ -123,12 +125,9 @@ func (s *Server) RPCDB(args *phatdb.DBCommand, reply *phatdb.DBResponse) error {
 		case "CREATE", "DELETE", "SET":
 			Debug("Need to send command via Paxos")
 			s.ReplicaServer.RunVR(argsWithChannel)
-			/*else {
-				s.Debug("Debugging, so skipping paxos")
-				s.InputChan <- argsWithChannel
-			}*/
 			Debug("Command committed, waiting for DB response")
 			result := <-argsWithChannel.Done
+			//Debug("Result is: %v", *result.Error, *result.Reply)
 			*reply = *result
 			Debug("Finished write-only")
 			//paxos(args)
@@ -144,5 +143,6 @@ func (s *Server) RPCDB(args *phatdb.DBCommand, reply *phatdb.DBResponse) error {
 			Debug("Finished read-only")
 		}
 	}
+	Debug("Got to end :-(")
 	return nil
 }

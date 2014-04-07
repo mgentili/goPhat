@@ -63,7 +63,7 @@ func (t *TestMaster) Setup(n int) {
 
 func (t *TestMaster) StartMasterClient() {
 	var err error
-	t.MasterClient, err = phatclient.NewClient(t.RPC_Locations, 0)
+	t.MasterClient, err = phatclient.NewClient(t.RPC_Locations, 1)
 	if err != nil {
 		DieClean("Unable to start master client")
 	}
