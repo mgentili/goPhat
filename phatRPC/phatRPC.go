@@ -3,9 +3,9 @@ package phatRPC
 import (
 	"encoding/gob"
 	"errors"
+	"github.com/mgentili/goPhat/level_log"
 	"github.com/mgentili/goPhat/phatdb"
 	"github.com/mgentili/goPhat/vr"
-	"github.com/mgentili/goPhat/level_log"
 	"net"
 	"net/rpc"
 	"os"
@@ -38,9 +38,10 @@ func SetupRPCLog() {
 	if RPC_log == nil {
 		levelsToLog := []int{DEBUG}
 		RPC_log = level_log.NewLL(os.Stdout, "RPC: ")
-		RPC_log.SetLevelsToLog(levelsToLog);
+		RPC_log.SetLevelsToLog(levelsToLog)
 	}
 }
+
 // startServer starts a TCP server that accepts client requests at the given port
 // and has information about the replica server
 func StartServer(address string, replica *vr.Replica) (*rpc.Server, error) {
@@ -60,6 +61,9 @@ func StartServer(address string, replica *vr.Replica) (*rpc.Server, error) {
 	// as a generic interface{} (I don't understand the details that well,
 	// see http://stackoverflow.com/questions/21934730/gob-type-not-registered-for-interface-mapstringinterface)
 	gob.Register(phatdb.DBCommandWithChannel{})
+	// Need to register all types that are returned within the DBResponse
+	gob.Register(phatdb.DataNode{})
+	gob.Register(phatdb.StatNode{})
 
 	// closure to be called whenever VR wants to do a DB commit
 	replica.CommitFunc = func(command interface{}) {
@@ -127,7 +131,6 @@ func (s *Server) RPCDB(args *phatdb.DBCommand, reply *phatdb.DBResponse) error {
 			s.ReplicaServer.RunVR(argsWithChannel)
 			Debug("Command committed, waiting for DB response")
 			result := <-argsWithChannel.Done
-			//Debug("Result is: %v", *result.Error, *result.Reply)
 			*reply = *result
 			Debug("Finished write-only")
 			//paxos(args)
