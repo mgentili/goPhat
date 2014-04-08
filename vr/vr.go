@@ -6,6 +6,7 @@ import (
 	"github.com/mgentili/goPhat/phatlog"
 	"net"
 	"net/rpc"
+	"sync"
 	"time"
 )
 
@@ -38,9 +39,10 @@ type Replica struct {
 	Vcstate  ViewChangeState
 	Rcvstate RecoveryState
 	// list of replica addresses, in sorted order
-	Config  []string
-	Clients [NREPLICAS]*rpc.Client
-	Phatlog *phatlog.Log
+	Config   []string
+	Conns    [NREPLICAS]*rpc.Client
+	ConnLock sync.Mutex
+	Phatlog  *phatlog.Log
 	// function to call to commit to a command
 	CommitFunc func(command interface{})
 	Listener   net.Listener
@@ -324,10 +326,12 @@ func (r *Replica) ClientConnect(repNum uint) (*rpc.Client, error) {
 	c, err := rpc.Dial("tcp", r.Config[repNum])
 
 	if err == nil {
-		if r.Clients[repNum] != nil {
-			r.Clients[repNum].Close()
+		r.ConnLock.Lock()
+		if r.Conns[repNum] != nil {
+			r.Conns[repNum].Close()
 		}
-		r.Clients[repNum] = c
+		r.Conns[repNum] = c
+		r.ConnLock.Unlock()
 	}
 
 	return c, err
@@ -389,16 +393,18 @@ func (r *Replica) sendAndRecvTo(replicas []uint, msg string, args interface{}, n
 		call.Tries = tries + 1
 
 		// might need to first open a connection to them
-		client := r.Clients[repNum]
-		if client == nil {
-			client, call.Error = r.ClientConnect(repNum)
+		r.ConnLock.Lock()
+		conn := r.Conns[repNum]
+		r.ConnLock.Unlock()
+		if conn == nil {
+			conn, call.Error = r.ClientConnect(repNum)
 			if call.Error != nil {
 				callChan <- call
 				return
 			}
 		}
 		call.Reply = newReply()
-		call.Error = client.Call(msg, args, call.Reply)
+		call.Error = conn.Call(msg, args, call.Reply)
 		// and now send it to the master channel
 		callChan <- call
 	}
@@ -424,8 +430,10 @@ func (r *Replica) sendAndRecvTo(replicas []uint, msg string, args interface{}, n
 				r.Debug("sendAndRecv message error: %v", call.Error)
 				if call.Error == rpc.ErrShutdown {
 					// connection is shutdown so force reconnect
-					r.Clients[call.RepNum].Close()
-					r.Clients[call.RepNum] = nil
+					r.ConnLock.Lock()
+					r.Conns[call.RepNum].Close()
+					r.Conns[call.RepNum] = nil
+					r.ConnLock.Unlock()
 				}
 				// give up eventually (mainly, helps recovery errors actually show up)
 				if call.Tries >= MAX_TRIES {

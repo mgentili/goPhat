@@ -45,7 +45,9 @@ func (r *Replica) Shutdown() {
 
 // closes connection to the given replica number
 func (r *Replica) DestroyConns(repNum uint) {
-	if r.Clients[repNum] != nil {
-		r.Clients[repNum].Close()
+	r.ConnLock.Lock()
+	if r.Conns[repNum] != nil {
+		r.Conns[repNum].Close()
 	}
+	r.ConnLock.Unlock()
 }
