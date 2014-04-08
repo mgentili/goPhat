@@ -41,7 +41,7 @@ func (r *Replica) resetVcstate() {
 }
 
 func (r *Replica) replicaStateInfo() {
-        r.Debug("Replica %d: ViewNumber:%d, OpNumber:%d, CommitNumber:%d\n", r.Rstate.ReplicaNumber, r.Rstate.View, r.Rstate.OpNumber, r.Rstate.CommitNumber)
+        r.Debug(STATUS, "Replica %d: ViewNumber:%d, OpNumber:%d, CommitNumber:%d\n", r.Rstate.ReplicaNumber, r.Rstate.View, r.Rstate.OpNumber, r.Rstate.CommitNumber)
 }
 
 
@@ -50,7 +50,7 @@ func (r *Replica) replicaStateInfo() {
 func (r *Replica) PrepareViewChange() {
 	r.Rstate.Status = ViewChange
 	r.Rstate.View++
-	r.Debug("PrepareViewChange")
+	r.Debug(STATUS, "PrepareViewChange")
 
 	args := StartViewChangeArgs{r.Rstate.View, r.Rstate.ReplicaNumber}
 
@@ -76,7 +76,7 @@ func (t *RPCReplica) StartViewChange(args *StartViewChangeArgs, reply *int) erro
 
 	r.Vcstate.StartViewReplies |= 1 << args.ReplicaNumber
 	r.Vcstate.StartViews++
-	r.Debug("StartViewChange")
+	r.Debug(STATUS, "StartViewChange")
 
 	//first time we have seen this viewchange message
 	if r.Rstate.View < args.View {
@@ -99,8 +99,8 @@ func (t *RPCReplica) StartViewChange(args *StartViewChangeArgs, reply *int) erro
 
     //if we have recieved enough StartViewChange messages send DoViewChange
 	if r.Vcstate.StartViews == F && !r.IsMaster() {
-	    r.Debug("Sending DoViewChange")
-        r.Debug("Sending to: %d\n", r.Rstate.View%(NREPLICAS))
+	    r.Debug(STATUS, "Sending DoViewChange")
+        r.Debug(STATUS, "Sending to: %d\n", r.Rstate.View%(NREPLICAS))
 
         //DoViewChange args
         DVCargs := DoViewChangeArgs{r.Rstate.View, r.Rstate.ReplicaNumber,
@@ -124,11 +124,11 @@ func (t *RPCReplica) DoViewChange(args *DoViewChangeArgs, reply *int) error {
 	r.Vcstate.DoViewReplies |= 1 << args.ReplicaNumber
 	r.Vcstate.DoViews++
 	r.Vcstate.DoViewChangeMsgs[args.ReplicaNumber] = *args
-	r.Debug("DoViewChange")
+	r.Debug(STATUS, "DoViewChange")
 
 	//We have recived enough DoViewChange messages
 	if r.Vcstate.DoViews == F {
-		r.Debug("PrepareStartView")
+		r.Debug(STATUS, "PrepareStartView")
 
 		//updates replica state based on replies
 		r.calcMasterView()
@@ -137,7 +137,7 @@ func (t *RPCReplica) DoViewChange(args *DoViewChangeArgs, reply *int) error {
 		r.Rstate.Status = Normal
 		r.replicaStateInfo()
 		r.BecomeMaster()
-		r.Debug("ViewChangeComplete!")
+		r.Debug(STATUS, "ViewChangeComplete!")
 
 		//send the StartView messages to all replicas
 		SVargs := StartViewArgs{r.Rstate.View, r.Phatlog, r.Rstate.OpNumber, r.Rstate.CommitNumber}
@@ -151,7 +151,7 @@ func (t *RPCReplica) DoViewChange(args *DoViewChangeArgs, reply *int) error {
 
 func (t *RPCReplica) StartView(args *DoViewChangeArgs, reply *int) error {
 	r := t.R
-	r.Debug("StartView")
+	r.Debug(STATUS, "StartView")
 
 	r.Phatlog = args.Log
 	r.Rstate.OpNumber = args.OpNumber
@@ -161,7 +161,7 @@ func (t *RPCReplica) StartView(args *DoViewChangeArgs, reply *int) error {
 
 	r.replicaStateInfo()
 	r.resetVcstate()
-	r.Debug("ViewChangeComplete!")
+	r.Debug(STATUS, "ViewChangeComplete!")
 
 	return nil
 }

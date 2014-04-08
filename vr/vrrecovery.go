@@ -40,7 +40,7 @@ func (r *Replica) PrepareRecovery() {
 
     //change state to recovery
 	r.Rstate.Status = Recovery
-	r.Debug("Starting Recovery")
+	r.Debug(STATUS, "Starting Recovery")
 
     //fill RPC args
 	r.Rcvstate.Nonce = uint(rand.Uint32())
@@ -102,7 +102,7 @@ func (r *Replica) handleRecoveryResponse(reply *RecoveryResponse) bool {
 		r.Phatlog = r.Rcvstate.RecoveryResponseMsgs[masterId].Log
 		r.Rstate.Status = Normal
 		r.resetRcvstate()
-		r.Debug("Done with Recovery!")
+		r.Debug(STATUS, "Done with Recovery!")
 
 		return true
 	}
