@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"flag"
 	"fmt"
 	"github.com/mgentili/goPhat/phatclient"
@@ -25,24 +24,39 @@ const (
 	DEBUG = 0
 )
 
+type ClientState struct {
+	client *phatclient.PhatClient
+	NumCreateMessages int
+	requestChan chan string
+}
+
 type TestMaster struct {
 	ReplicaProcesses []*exec.Cmd
-	MasterClient     *phatclient.PhatClient
+	Clients     []*ClientState
 	NumAliveReplicas int
 	NumReplicas int
-	NumSentMessages  int
+	NumClients int
 	Server_Locations []string
 	RPC_Locations    []string
 	ReplicaStatus []int
 	log *level_log.Logger
 }
 
-var cleanup func()
+func (t *TestMaster) cleanup() {
+	t.log.Printf(DEBUG, "Killing nodes in cleanup...\n")
+	for i, proc := range t.ReplicaProcesses {
+		t.log.Printf(DEBUG, "Killing node %d", i)
+		err := proc.Process.Kill()
+		if err != nil {
+			t.log.Printf(DEBUG, "Failed to kill %d", i)
+		}
+	}
+}
 
 // Go doesn't have an atexit
 // https://groups.google.com/d/msg/golang-nuts/qBQ0bK2zvQA/vmOu9uhkYH0J
 func (t *TestMaster) DieClean(v ...interface{}) {
-	cleanup()
+	t.cleanup()
 	t.log.Fatal(DEBUG, v)
 }
 
@@ -54,40 +68,63 @@ func (t *TestMaster) SetupLog() {
 
 // StartNodes starts up n replica nodes and connects a client to all of them.
 // That client will be the one to send requests and testing functions (e.g. stop connnection)
-func (t *TestMaster) Setup(n int) {
-	t.Server_Locations = make([]string, n)
-	t.RPC_Locations = make([]string, n)
-	t.ReplicaProcesses = make([]*exec.Cmd, n)
-	t.ReplicaStatus = make([]int, n)
-	t.NumReplicas = n
+func (t *TestMaster) Setup(nr int, nc int) {
+	t.Server_Locations = make([]string, nr)
+	t.RPC_Locations = make([]string, nr)
+	t.ReplicaProcesses = make([]*exec.Cmd, nr)
+	t.ReplicaStatus = make([]int, nr)
+	t.NumReplicas = nr
+	t.Clients = make([]*ClientState, nc)
+	t.NumClients = nc
 	t.SetupLog()
 
-	t.log.Printf(DEBUG, "Starting %d nodes\n", n)
+	t.log.Printf(DEBUG, "Starting %d nodes\n", nr)
 
-	for i := 0; i < n; i++ {
+	for i := 0; i < nr; i++ {
 		t.Server_Locations[i] = fmt.Sprintf("%s:%d", HOST, INIT_SERVER_PORT+i)
 		t.RPC_Locations[i] = fmt.Sprintf("%s:%d", HOST, INIT_RPC_PORT+i)
 	}
 
-	for i := n - 1; i >= 0; i-- {
+	for i := nr - 1; i >= 0; i-- {
 		t.StartNode(i)
 	}
 
 	time.Sleep(time.Second)
-	t.NumAliveReplicas = n
-	t.StartMasterClient()
+	t.NumAliveReplicas = nr
+	t.StartClients()
 }
 
-func (t *TestMaster) StartMasterClient() {
+func (t *TestMaster) StartClients() {
 	var err error
-	t.MasterClient, err = phatclient.NewClient(t.RPC_Locations, 1, "c1")
-	if err != nil {
-		t.DieClean("Unable to start master client")
+	for i := 0; i < t.NumClients; i++ {
+		t.Clients[i] = new(ClientState)
+		cli := t.Clients[i]
+		cli.client, err = phatclient.NewClient(t.RPC_Locations, 1, fmt.Sprintf("c%d", i))
+		if err != nil {
+			t.DieClean("Unable to start client")
+		}
+		cli.requestChan = make(chan string, 20)
+		// each request sent to a specific client will be serialized
+		go t.ProcessClientCalls(i)
 	}
 
 	time.Sleep(time.Second)
-	//creates a database entry so that we can SetData on that entry without erroring
-	t.SendCreateMessage()
+}
+
+func (t *TestMaster) ProcessClientCalls(client_num int) {
+	for {
+		cli := t.Clients[client_num]
+		r := <-cli.requestChan
+		switch {
+		case r == "CREATE":
+			_, err := cli.client.Create(fmt.Sprintf("/%s%d",cli.client.Uid,cli.NumCreateMessages), cli.client.Uid)
+			cli.NumCreateMessages+=1
+			if err != nil {
+				t.log.Printf(DEBUG, "Client call failed :-(")
+			}
+			
+		}
+	}
 }
 
 func (t *TestMaster) StartNode(i int) error {
@@ -153,22 +190,8 @@ func (t *TestMaster) ResumeNode(i int) error {
 	return nil
 }
 
-func (t *TestMaster) SendCreateMessage() {
-	_, err := t.MasterClient.Create("/dev/null", "-1")
-	t.log.Printf(DEBUG, "Send create message succeeded!")
-	if err != nil {
-		t.DieClean(err)
-	}
-}
-
-func (t *TestMaster) SendSetDataMessage() {
-	t.MasterClient.SetData("/dev/null", strconv.Itoa(t.NumSentMessages))
-	t.NumSentMessages += 1
-	t.log.Printf(DEBUG, "Send set message succeeded!")
-}
-
 func (t *TestMaster) SendGetDataMessage() {
-	response, err := t.MasterClient.GetData("/dev/null")
+	response, err := t.Clients[0].client.GetData("/dev/null")
 	if err != nil {
 		t.DieClean(err)
 	}
@@ -180,7 +203,8 @@ func (t *TestMaster) ProcessCall(s string) {
 	switch {
 	case command[0] == "startnodes":
 		numnodes, _ := strconv.Atoi(command[1])
-		t.Setup(numnodes)
+		numclients, _ := strconv.Atoi(command[2])
+		t.Setup(numnodes, numclients)
 	case command[0] == "stopnode":
 		node, _ := strconv.Atoi(command[1])
 		t.StopNode(node)
@@ -190,28 +214,10 @@ func (t *TestMaster) ProcessCall(s string) {
 	case command[0] == "wait":
 		seconds, _ := strconv.Atoi(command[1])
 		time.Sleep(time.Duration(seconds) * time.Second)
-	case command[0] == "putfile":
-		t.SendSetDataMessage()
-	case command[0] == "getfile":
-		t.SendGetDataMessage()
+	case command[0] == "createfile":
+		t.log.Printf(DEBUG,"Creating a file")
+		t.Clients[0].requestChan<-"CREATE"
 	}
-}
-
-// readLines reads a whole file into memory
-// and returns a slice of its lines (assuming one int per line).
-func readLines(path string) ([]string, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	var lines []string
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		lines = append(lines, scanner.Text())
-	}
-	return lines, scanner.Err()
 }
 
 func (t *TestMaster) runFile(path string) {
@@ -232,17 +238,7 @@ func main() {
 	t := new(TestMaster)
 
 	// Kill any nodes created before leaving
-	cleanup = func() {
-		t.log.Printf(DEBUG, "Killing nodes in cleanup...\n")
-		for i, proc := range t.ReplicaProcesses {
-			t.log.Printf(DEBUG, "Killing node %d", i)
-			err := proc.Process.Kill()
-			if err != nil {
-				t.log.Printf(DEBUG, "Failed to kill %d", i)
-			}
-		}
-	}
-	defer cleanup()
+	defer t.cleanup()
 
 	switch {
 	case *testtype == -1:
@@ -256,48 +252,6 @@ func main() {
 	case *testtype == 4:
 		t.testLotsofReplicas()
 	}
-}
 
-func (t *TestMaster) testReplicaFailure() {
-	t.Setup(3)
-	t.SendSetDataMessage()
-	time.Sleep(time.Second)
-	t.StopNode(2)
-	t.SendSetDataMessage()
-	t.ResumeNode(2)
-	t.SendGetDataMessage()
-}
-
-func (t *TestMaster) testMasterFailure() {
-	t.Setup(3)
-	t.SendSetDataMessage()
-	time.Sleep(time.Second)
-	t.StopNode(0)
-	t.SendSetDataMessage()
-	t.ResumeNode(0)
-	time.Sleep(time.Second*2)
-	t.SendGetDataMessage()
-	time.Sleep(time.Second*2)
-}
-
-func (t *TestMaster) testTwoMasterFailure() {
-	t.Setup(5)
-	t.SendSetDataMessage()
-	time.Sleep(time.Second)
-	t.StopNode(0)
-	t.SendSetDataMessage()
-	t.StopNode(1)
-	t.SendSetDataMessage()
-	t.ResumeNode(0)
-	t.ResumeNode(1)
-	time.Sleep(time.Second*2)
-	t.SendGetDataMessage()
-	time.Sleep(time.Second*2)
-}
-
-func (t *TestMaster) testLotsofReplicas() {
-	t.Setup(5)
-	t.SendSetDataMessage()
-	t.SendGetDataMessage()
-	time.Sleep(time.Second*4)
+	time.Sleep(3)
 }
