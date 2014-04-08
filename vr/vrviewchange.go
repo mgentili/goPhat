@@ -48,6 +48,7 @@ func (r *Replica) replicaStateInfo() {
 
 //A replica notices that a viewchange is needed
 func (r *Replica) PrepareViewChange() {
+    r.resetVcstate()
 	r.Rstate.Status = ViewChange
 	r.Rstate.View++
 	r.Debug(STATUS, "PrepareViewChange")
@@ -68,6 +69,10 @@ func (t *RPCReplica) StartViewChange(args *StartViewChangeArgs, reply *int) erro
 	if r.Rstate.View > args.View {
 		return nil
 	}
+
+    if r.Rstate.View < args.View {
+        r.resetVcstate()
+    }
 
 	//already recieved a message from this replica
 	if ((1 << args.ReplicaNumber) & r.Vcstate.StartViewReplies) != 0 {
