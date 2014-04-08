@@ -3,16 +3,33 @@ package vr
 import (
 	"errors"
 	"fmt"
-	"log"
+	"github.com/mgentili/goPhat/level_log"
+	"os"
 	"runtime"
 	"time"
 )
+
+const (
+	DEBUG = iota
+	STATUS
+	ERROR
+)
+
+var VR_log *level_log.Logger
+
+func SetupVRLog() {
+	if VR_log == nil {
+		levelsToLog := []int{STATUS, ERROR}
+		VR_log = level_log.NewLL(os.Stdout, "VR: ")
+		VR_log.SetLevelsToLog(levelsToLog)
+	}
+}
 
 // Go doesn't have assertions...
 func assert(b bool) {
 	if !b {
 		_, file, line, _ := runtime.Caller(1)
-		log.Fatalf("assertion failed: %s:%d", file, line)
+		VR_log.Fatalf(ERROR, "assertion failed: %s:%d", file, line)
 	}
 }
 
@@ -20,9 +37,9 @@ func wrongView() error {
 	return errors.New("view numbers don't match")
 }
 
-func (r *Replica) Debug(format string, args ...interface{}) {
+func (r *Replica) Debug(level int, format string, args ...interface{}) {
 	str := fmt.Sprintf("Replica %d: %s", r.Rstate.ReplicaNumber, format)
-	log.Printf(str, args...)
+	VR_log.Printf(level, str, args...)
 }
 
 func (r *Replica) IsMaster() bool {
@@ -45,7 +62,9 @@ func (r *Replica) Shutdown() {
 
 // closes connection to the given replica number
 func (r *Replica) DestroyConns(repNum uint) {
-	if r.Clients[repNum] != nil {
-		r.Clients[repNum].Close()
+	r.ConnLock.Lock()
+	if r.Conns[repNum] != nil {
+		r.Conns[repNum].Close()
 	}
+	r.ConnLock.Unlock()
 }

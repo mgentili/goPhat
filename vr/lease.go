@@ -33,10 +33,10 @@ func (rstate *ReplicaState) ExtendLease(newTime time.Time) {
 
 func (r *Replica) ReplicaTimeout() {
 	if r.IsMaster() {
-		r.Debug("we couldn't stay master :(,ViewNum:%d\n", r.Rstate.View)
+		r.Debug(STATUS, "we couldn't stay master :(,ViewNum:%d\n", r.Rstate.View)
 		// TODO: can't handle read requests anymore
 	}
-	r.Debug("Timed out, trying view change")
+	r.Debug(STATUS, "Timed out, trying view change")
 	r.PrepareViewChange()
 	// start counting again so we timeout if the new replica can't become master
 	r.Rstate.ExtendLease(time.Now().Add(LEASE))

@@ -2,7 +2,6 @@ package vr
 
 import (
 	"github.com/mgentili/goPhat/phatlog"
-	"log"
 	"time"
 )
 
@@ -36,23 +35,22 @@ type DoViewChangeArgs struct {
 	CommitNumber  uint
 }
 
-func (r *Replica) logVcstate(state string) {
-	log.Printf("Replica %d at state %s: VN:%d, SVs:%d, DVs:%d\n", r.Rstate.ReplicaNumber, state, r.Rstate.View, r.Vcstate.StartViews, r.Vcstate.DoViews)
-}
-
-func (r *Replica) replicaStateInfo() {
-	log.Printf("Replica %d: ViewNumber:%d, OpNumber:%d, CommitNumber:%d\n", r.Rstate.ReplicaNumber, r.Rstate.View, r.Rstate.OpNumber, r.Rstate.CommitNumber)
-}
 
 func (r *Replica) resetVcstate() {
 	r.Vcstate = ViewChangeState{}
 }
 
-//A replica notices that a viewchange is needed - starts off the messages
+func (r *Replica) replicaStateInfo() {
+        r.Debug("Replica %d: ViewNumber:%d, OpNumber:%d, CommitNumber:%d\n", r.Rstate.ReplicaNumber, r.Rstate.View, r.Rstate.OpNumber, r.Rstate.CommitNumber)
+}
+
+
+
+//A replica notices that a viewchange is needed
 func (r *Replica) PrepareViewChange() {
 	r.Rstate.Status = ViewChange
 	r.Rstate.View++
-	r.logVcstate("PrepareViewChange")
+	r.Debug("PrepareViewChange")
 
 	args := StartViewChangeArgs{r.Rstate.View, r.Rstate.ReplicaNumber}
 
@@ -78,7 +76,7 @@ func (t *RPCReplica) StartViewChange(args *StartViewChangeArgs, reply *int) erro
 
 	r.Vcstate.StartViewReplies |= 1 << args.ReplicaNumber
 	r.Vcstate.StartViews++
-	r.logVcstate("StartViewChange")
+	r.Debug("StartViewChange")
 
 	//first time we have seen this viewchange message
 	if r.Rstate.View < args.View {
@@ -99,16 +97,17 @@ func (t *RPCReplica) StartViewChange(args *StartViewChangeArgs, reply *int) erro
 			func(r interface{}) bool { return false })
 	}
 
-	if r.Vcstate.StartViews == F {
+    //if we have recieved enough StartViewChange messages send DoViewChange
+	if r.Vcstate.StartViews == F && !r.IsMaster() {
+	    r.Debug("Sending DoViewChange")
+        r.Debug("Sending to: %d\n", r.Rstate.View%(NREPLICAS))
 
-		DVCargs := DoViewChangeArgs{r.Rstate.View, r.Rstate.ReplicaNumber, r.Phatlog, r.Vcstate.NormalView, r.Rstate.OpNumber, r.Rstate.CommitNumber}
+        //DoViewChange args
+        DVCargs := DoViewChangeArgs{r.Rstate.View, r.Rstate.ReplicaNumber,
+        r.Phatlog, r.Vcstate.NormalView, r.Rstate.OpNumber, r.Rstate.CommitNumber}
 
-		// only send DoViewChange if we're not the new master (can't actually send a message to ourself)
-		if !r.IsMaster() {
-			r.logVcstate("Sending DoViewChange")
-			log.Printf("Sending to: %d\n", r.Rstate.View%(NREPLICAS))
-			r.SendOne(r.Rstate.View%(NREPLICAS), "RPCReplica.DoViewChange", DVCargs, nil)
-		}
+        //send to new master
+        r.SendOne(r.Rstate.View%(NREPLICAS), "RPCReplica.DoViewChange", DVCargs, nil)
 	}
 
 	return nil
@@ -125,11 +124,11 @@ func (t *RPCReplica) DoViewChange(args *DoViewChangeArgs, reply *int) error {
 	r.Vcstate.DoViewReplies |= 1 << args.ReplicaNumber
 	r.Vcstate.DoViews++
 	r.Vcstate.DoViewChangeMsgs[args.ReplicaNumber] = *args
-	r.logVcstate("DoViewChange")
+	r.Debug("DoViewChange")
 
 	//We have recived enough DoViewChange messages
 	if r.Vcstate.DoViews == F {
-		r.logVcstate("PrepareStartView")
+		r.Debug("PrepareStartView")
 
 		//updates replica state based on replies
 		r.calcMasterView()
@@ -138,7 +137,7 @@ func (t *RPCReplica) DoViewChange(args *DoViewChangeArgs, reply *int) error {
 		r.Rstate.Status = Normal
 		r.replicaStateInfo()
 		r.BecomeMaster()
-		r.logVcstate("ViewChangeComplete!")
+		r.Debug("ViewChangeComplete!")
 
 		//send the StartView messages to all replicas
 		SVargs := StartViewArgs{r.Rstate.View, r.Phatlog, r.Rstate.OpNumber, r.Rstate.CommitNumber}
@@ -152,7 +151,7 @@ func (t *RPCReplica) DoViewChange(args *DoViewChangeArgs, reply *int) error {
 
 func (t *RPCReplica) StartView(args *DoViewChangeArgs, reply *int) error {
 	r := t.R
-	r.logVcstate("StartView")
+	r.Debug("StartView")
 
 	r.Phatlog = args.Log
 	r.Rstate.OpNumber = args.OpNumber
@@ -162,11 +161,12 @@ func (t *RPCReplica) StartView(args *DoViewChangeArgs, reply *int) error {
 
 	r.replicaStateInfo()
 	r.resetVcstate()
-	r.logVcstate("ViewChangeComplete!")
+	r.Debug("ViewChangeComplete!")
 
 	return nil
 }
 
+//TODO:Make this more readable
 func (r *Replica) calcMasterView() {
 	r.Rstate.View = r.Vcstate.DoViewChangeMsgs[0].View
 
