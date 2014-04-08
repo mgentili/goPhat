@@ -103,7 +103,7 @@ type HeartbeatReply struct {
 // RPCs
 func (t *RPCReplica) Prepare(args *PrepareArgs, reply *PrepareReply) error {
 	r := t.R
-	r.Debug("Got prepare %d\n", args.OpNumber)
+	r.Debug(STATUS, "Got prepare %d\n", args.OpNumber)
 
 	if args.View > r.Rstate.View {
 		// a new master must have been elected without us, so need to recover
@@ -187,7 +187,7 @@ func (r *Replica) RunVR(command interface{}) {
 }
 
 func (r *Replica) handlePrepareOK(reply *PrepareReply) bool {
-	r.Debug("got response: %+v\n", reply)
+	r.Debug(DEBUG, "got response: %+v\n", reply)
 	if reply.View != r.Rstate.View {
 		return false
 	}
@@ -202,12 +202,12 @@ func (r *Replica) handlePrepareOK(reply *PrepareReply) bool {
 		return false
 	}
 
-	r.Debug("got suitable response\n")
+	r.Debug(DEBUG, "got suitable response\n")
 
 	r.Mstate.Replies |= 1 << reply.ReplicaNumber
 	r.Mstate.A++
 
-	r.Debug("new master state: %v\n", r.Mstate)
+	r.Debug(DEBUG, "new master state: %v\n", r.Mstate)
 
 	// only need F responses (we implicitly got one from ourselves)
 	if r.Mstate.A != F {
@@ -225,7 +225,7 @@ func (r *Replica) handlePrepareOK(reply *PrepareReply) bool {
 
 func (r *Replica) sendCommitMsgs() {
 	args := CommitArgs{r.Rstate.View, r.Rstate.CommitNumber}
-	r.Debug("sending commit: %d", r.Rstate.CommitNumber)
+	r.Debug(STATUS, "sending commit: %d", r.Rstate.CommitNumber)
 	go r.sendAndRecv(NREPLICAS-1, "RPCReplica.Commit", args,
 		func() interface{} { return new(HeartbeatReply) },
 		func(reply interface{}) bool {
@@ -261,9 +261,10 @@ func (r *Replica) BecomeMaster() {
 }
 
 func (r *Replica) ReplicaInit() {
+	SetupVRLog()
 	ln, err := net.Listen("tcp", r.Config[r.Rstate.ReplicaNumber])
 	if err != nil {
-		r.Debug("Couldn't start a listener: %v", err)
+		r.Debug(ERROR, "Couldn't start a listener: %v", err)
 		return
 	}
 	r.Listener = ln
@@ -285,7 +286,7 @@ func (r *Replica) ReplicaRun() {
 	for {
 		conn, err := r.Listener.Accept()
 		if err != nil {
-			r.Debug("err: %v", err)
+			r.Debug(ERROR, "err: %v", err)
 			time.Sleep(10000 * time.Millisecond)
 			continue
 		}
@@ -295,26 +296,26 @@ func (r *Replica) ReplicaRun() {
 
 func (r *Replica) addLog(command interface{}) {
 	r.Phatlog.Add(r.Rstate.OpNumber, command)
-	r.Debug("adding command to log")
+	r.Debug(DEBUG, "adding command to log")
 }
 
 func (r *Replica) doCommit(cn uint) {
 	if cn <= r.Rstate.CommitNumber {
-		//r.Debug("Ignoring commit %d, already commited up to %d", cn, r.Rstate.CommitNumber)
+		r.Debug(STATUS, "Ignoring commit %d, already commited up to %d", cn, r.Rstate.CommitNumber)
 		return
 	} else if cn > r.Rstate.OpNumber {
-		r.Debug("need to do state transfer. only at op %d in log but got commit for %d\n", r.Rstate.OpNumber, cn)
+		r.Debug(STATUS, "need to do state transfer. only at op %d in log but got commit for %d\n", r.Rstate.OpNumber, cn)
 		r.PrepareRecovery()
 		return
 	} else if cn > r.Rstate.CommitNumber+1 {
-		r.Debug("need to do extra commits")
+		r.Debug(STATUS, "need to do extra commits")
 		// we're behind (but have all the log entries, so don't need to state
 		// transfer), so catch up by committing up to the current commit
 		for i := r.Rstate.CommitNumber + 1; i < cn; i++ {
 			r.doCommit(i)
 		}
 	}
-	r.Debug("commiting %d", r.Rstate.CommitNumber+1)
+	r.Debug(STATUS, "commiting %d", r.Rstate.CommitNumber+1)
 	if r.CommitFunc != nil {
 		r.CommitFunc(r.Phatlog.GetCommand(r.Rstate.CommitNumber + 1))
 	}
@@ -426,8 +427,7 @@ func (r *Replica) sendAndRecvTo(replicas []uint, msg string, args interface{}, n
 		for i := 0; i < N; {
 			call := <-callChan
 			if call.Error != nil {
-				// for now just resend failed messages indefinitely
-				r.Debug("sendAndRecv message error: %v", call.Error)
+				level := STATUS
 				if call.Error == rpc.ErrShutdown {
 					// connection is shutdown so force reconnect
 					r.ConnLock.Lock()
@@ -435,6 +435,12 @@ func (r *Replica) sendAndRecvTo(replicas []uint, msg string, args interface{}, n
 					r.Conns[call.RepNum] = nil
 					r.ConnLock.Unlock()
 				}
+				// errors from retries are only logged in debug mode
+				if call.Tries > 1 {
+					level = DEBUG
+				}
+				r.Debug(level, "sendAndRecv message error: %v", call.Error)
+
 				// give up eventually (mainly, helps recovery errors actually show up)
 				if call.Tries >= MAX_TRIES {
 					//i++

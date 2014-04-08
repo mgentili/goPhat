@@ -55,7 +55,7 @@ func (r *Replica) PrepareRecovery() {
 func (t *RPCReplica) Recovery(args *RecoveryArgs, reply *RecoveryResponse) error {
 	r := t.R
 
-	r.Debug("Got Recovery RPC")
+	r.Debug(STATUS, "Got Recovery RPC")
 	//only send a response if our state is normal
 	if r.Rstate.Status != Normal {
 		return nil
@@ -68,7 +68,7 @@ func (t *RPCReplica) Recovery(args *RecoveryArgs, reply *RecoveryResponse) error
 }
 
 func (r *Replica) handleRecoveryResponse(reply *RecoveryResponse) bool {
-	r.Debug("got recoveryresponse from replica %d", reply.ReplicaNumber)
+	r.Debug(STATUS, "got recoveryresponse from replica %d", reply.ReplicaNumber)
 
 	//already recieved a recovery response message from this replica
 	if ((1 << reply.ReplicaNumber) & r.Rcvstate.RecoveryResponseReplies) != 0 {
