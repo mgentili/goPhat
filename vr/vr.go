@@ -319,20 +319,18 @@ func (r *Replica) doCommit(cn uint) {
 	r.Rstate.CommitNumber++
 }
 
-func (r *Replica) ClientConnect(repNum uint) error {
+func (r *Replica) ClientConnect(repNum uint) (*rpc.Client, error) {
 	assert(repNum != r.Rstate.ReplicaNumber)
 	c, err := rpc.Dial("tcp", r.Config[repNum])
 
-	if err != nil {
-		r.Debug("error trying to connect to replica %d: %v", repNum, err)
-	} else {
+	if err == nil {
 		if r.Clients[repNum] != nil {
 			r.Clients[repNum].Close()
 		}
 		r.Clients[repNum] = c
 	}
 
-	return err
+	return c, err
 }
 
 // send RPC (and retry if needed) to the given replica
@@ -391,14 +389,14 @@ func (r *Replica) sendAndRecvTo(replicas []uint, msg string, args interface{}, n
 		call.Tries = tries + 1
 
 		// might need to first open a connection to them
-		if r.Clients[repNum] == nil {
-			call.Error = r.ClientConnect(repNum)
+		client := r.Clients[repNum]
+		if client == nil {
+			client, call.Error = r.ClientConnect(repNum)
 			if call.Error != nil {
 				callChan <- call
 				return
 			}
 		}
-		client := r.Clients[repNum]
 		call.Reply = newReply()
 		call.Error = client.Call(msg, args, call.Reply)
 		// and now send it to the master channel
@@ -444,7 +442,7 @@ func (r *Replica) sendAndRecvTo(replicas []uint, msg string, args interface{}, n
 			if callHandler && handler(call.Reply) {
 				// signals doneChan so that sendAndRecv can exit
 				// (and the master can continue to the next request)
-				// we still continue and resend messages as neccesary, however
+				// we still continue and resend messages as necessary, however
 				doneChan <- 0
 				callHandler = false
 			}
