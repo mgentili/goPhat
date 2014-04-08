@@ -34,11 +34,13 @@ const (
 )
 
 type Replica struct {
-	Rstate   ReplicaState
+	//Replica State Structs
+    Rstate   ReplicaState
 	Mstate   MasterState
 	Vcstate  ViewChangeState
 	Rcvstate RecoveryState
-	// list of replica addresses, in sorted order
+
+    // list of replica addresses, in sorted order
 	Config   []string
 	Conns    [NREPLICAS]*rpc.Client
 	ConnLock sync.Mutex

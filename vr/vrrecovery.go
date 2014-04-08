@@ -2,7 +2,6 @@ package vr
 
 import (
 	"github.com/mgentili/goPhat/phatlog"
-	"log"
 	"math/rand"
 )
 
@@ -31,21 +30,23 @@ func (r *Replica) resetRcvstate() {
 	r.Rcvstate = RecoveryState{}
 }
 
-//A replica notices that it needs a recovery (not sure how yet!)
+//A replica notices that it needs a recovery
 func (r *Replica) PrepareRecovery() {
 
-	//timeout occurs but we are already in recovery (might not be possible to hit this)
+	//timeout occurs but we are already in recovery
 	if r.Rstate.Status == Recovery {
 		return
 	}
 
+    //change state to recovery
 	r.Rstate.Status = Recovery
-	log.Printf("Recovery")
+	r.Debug("Starting Recovery")
 
-	//I wanted a uint since everything else is, but there isn't a rand.Uint function?
+    //fill RPC args
 	r.Rcvstate.Nonce = uint(rand.Uint32())
 	args := RecoveryArgs{r.Rstate.ReplicaNumber, r.Rcvstate.Nonce}
 
+    //send Recovery RPCs
 	go r.sendAndRecv(NREPLICAS-1, "RPCReplica.Recovery", args,
 		func() interface{} { return new(RecoveryResponse) },
 		func(reply interface{}) bool { return r.handleRecoveryResponse(reply.(*RecoveryResponse)) })
@@ -54,14 +55,14 @@ func (r *Replica) PrepareRecovery() {
 
 func (t *RPCReplica) Recovery(args *RecoveryArgs, reply *RecoveryResponse) error {
 	r := t.R
-
 	r.Debug("Got Recovery RPC")
-	//only send a response if our state is normal
+
+    //only send a response if our state is normal
 	if r.Rstate.Status != Normal {
 		return nil
 	}
 
-	//TODO:only send log and everything else if master (can i pass nil values for these params?)
+	//TODO:only send log and everything else if master
 	*reply = RecoveryResponse{r.Rstate.View, args.Nonce, r.Phatlog, r.Rstate.OpNumber, r.Rstate.CommitNumber, r.Rstate.ReplicaNumber}
 
 	return nil
@@ -80,7 +81,6 @@ func (r *Replica) handleRecoveryResponse(reply *RecoveryResponse) bool {
 		return false
 	}
 
-	//these variable names are a little silly..
 	r.Rcvstate.RecoveryResponseReplies |= 1 << reply.ReplicaNumber
 	r.Rcvstate.RecoveryResponses++
 	r.Rcvstate.RecoveryResponseMsgs[reply.ReplicaNumber] = *reply
@@ -101,7 +101,7 @@ func (r *Replica) handleRecoveryResponse(reply *RecoveryResponse) bool {
 		r.Phatlog = r.Rcvstate.RecoveryResponseMsgs[masterId].Log
 		r.Rstate.Status = Normal
 		r.resetRcvstate()
-		log.Printf("Done with Recovery!")
+		r.Debug("Done with Recovery!")
 
 		return true
 	}
