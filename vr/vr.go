@@ -433,8 +433,10 @@ func (r *Replica) sendAndRecvTo(replicas []uint, msg string, args interface{}, n
 				if call.Error == rpc.ErrShutdown {
 					// connection is shutdown so force reconnect
 					r.ConnLock.Lock()
-					r.Conns[call.RepNum].Close()
-					r.Conns[call.RepNum] = nil
+                    if r.Conns[call.RepNum] != nil {
+					    r.Conns[call.RepNum].Close()
+					    r.Conns[call.RepNum] = nil
+                    }
 					r.ConnLock.Unlock()
 				}
 				// errors from retries are only logged in debug mode

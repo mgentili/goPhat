@@ -7,7 +7,11 @@ import (
 
 // handle a given replica's heartbeat response
 func (r *Replica) Heartbeat(replica uint, newTime time.Time) {
-	assert(r.IsMaster())
+	//assert(r.IsMaster())
+    if !r.IsMaster() {
+        r.Debug(ERROR, "called heartbeat but we're no longer master")
+        return
+    }
 
 	r.Mstate.Heartbeats[replica] = newTime
 
