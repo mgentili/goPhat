@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"sync"
 )
 
 const (
@@ -40,34 +41,11 @@ type TestMaster struct {
 	RPC_Locations    []string
 	ReplicaStatus []int
 	log *level_log.Logger
+	wg sync.WaitGroup
 }
 
-func (t *TestMaster) cleanup() {
-	t.log.Printf(DEBUG, "Killing nodes in cleanup...\n")
-	for i, proc := range t.ReplicaProcesses {
-		t.log.Printf(DEBUG, "Killing node %d", i)
-		err := proc.Process.Kill()
-		if err != nil {
-			t.log.Printf(DEBUG, "Failed to kill %d", i)
-		}
-	}
-}
-
-// Go doesn't have an atexit
-// https://groups.google.com/d/msg/golang-nuts/qBQ0bK2zvQA/vmOu9uhkYH0J
-func (t *TestMaster) DieClean(v ...interface{}) {
-	t.cleanup()
-	t.log.Fatal(DEBUG, v)
-}
-
-func (t *TestMaster) SetupLog() {
-	levelsToLog := []int{DEBUG}
-	t.log = level_log.NewLL(os.Stdout, "TM: ")
-	t.log.SetLevelsToLog(levelsToLog)
-}
-
-// StartNodes starts up n replica nodes and connects a client to all of them.
-// That client will be the one to send requests and testing functions (e.g. stop connnection)
+// StartNodes starts up n replica nodes and connects a number of client to all of them.
+// Later on there should also be a super-client that can inject faults
 func (t *TestMaster) Setup(nr int, nc int) {
 	t.Server_Locations = make([]string, nr)
 	t.RPC_Locations = make([]string, nr)
@@ -91,10 +69,13 @@ func (t *TestMaster) Setup(nr int, nc int) {
 
 	time.Sleep(time.Second)
 	t.NumAliveReplicas = nr
+
 	t.StartClients()
 }
 
 func (t *TestMaster) StartClients() {
+	t.wg.Add(t.NumClients)
+
 	var err error
 	for i := 0; i < t.NumClients; i++ {
 		t.Clients[i] = new(ClientState)
@@ -111,22 +92,29 @@ func (t *TestMaster) StartClients() {
 	time.Sleep(time.Second)
 }
 
+// ProcessClientCalls serializes requests for one client
 func (t *TestMaster) ProcessClientCalls(client_num int) {
+
+	defer t.wg.Done()
+
 	for {
 		cli := t.Clients[client_num]
 		r := <-cli.requestChan
 		switch {
 		case r == "CREATE":
-			_, err := cli.client.Create(fmt.Sprintf("/%s%d",cli.client.Uid,cli.NumCreateMessages), cli.client.Uid)
+			loc := fmt.Sprintf("/%s%d",cli.client.Uid,cli.NumCreateMessages)
+			_, err := cli.client.Create(loc, fmt.Sprintf("%s's Data", loc))
 			cli.NumCreateMessages+=1
 			if err != nil {
 				t.log.Printf(DEBUG, "Client call failed :-(")
 			}
-			
+		default:
+			return	
 		}
 	}
 }
 
+// StartNode starts a replica connected to all the other replicas
 func (t *TestMaster) StartNode(i int) error {
 	cmd := exec.Command(START_NODE_FILE, "--index", strconv.Itoa(i),
 		"--replica_config", strings.Join(t.Server_Locations, ","),
@@ -190,14 +178,6 @@ func (t *TestMaster) ResumeNode(i int) error {
 	return nil
 }
 
-func (t *TestMaster) SendGetDataMessage() {
-	response, err := t.Clients[0].client.GetData("/dev/null")
-	if err != nil {
-		t.DieClean(err)
-	}
-	t.log.Printf(DEBUG, "Get Data Response: %d", response.Value)
-}
-
 func (t *TestMaster) ProcessCall(s string) {
 	command := strings.Split(s, " ")
 	switch {
@@ -215,7 +195,6 @@ func (t *TestMaster) ProcessCall(s string) {
 		seconds, _ := strconv.Atoi(command[1])
 		time.Sleep(time.Duration(seconds) * time.Second)
 	case command[0] == "createfile":
-		t.log.Printf(DEBUG,"Creating a file")
 		t.Clients[0].requestChan<-"CREATE"
 	}
 }
@@ -231,9 +210,31 @@ func (t *TestMaster) runFile(path string) {
 	}
 }
 
+// Verify checks that the replica state (database) agrees with the local database
+// TODO: Make local database, and when client calls succeed, add to local database.
+func (t *TestMaster) Verify() {
+	t.log.Printf(DEBUG, "Verifying correctness")
+	for _, c := range t.Clients {
+		for j:=0; j < c.NumCreateMessages; j++ {
+			loc := fmt.Sprintf("/%s%d", c.client.Uid, j)
+			data := fmt.Sprintf("%s's Data", loc)
+			res, err := c.client.GetData(loc)
+			if err != nil {
+				t.log.Printf(DEBUG, "Get Data of %s failed", loc)
+			}
+			str := res.Value
+			t.log.Printf(DEBUG, "Getting data for %s. Expected %s, got %s", loc, data, str)
+			if data != str {
+				t.log.Printf(DEBUG, "FAILED!")
+			}
+		}
+	}	
+}
+
+
 func main() {
 	path := flag.String("path", "", "File path")
-	testtype := flag.Int("test", -1, "Test number to run")
+	testtype := flag.String("test", "none", "Test number to run")
 	flag.Parse()
 	t := new(TestMaster)
 
@@ -241,17 +242,22 @@ func main() {
 	defer t.cleanup()
 
 	switch {
-	case *testtype == -1:
-		t.runFile(*path)
-	case *testtype == 1:
+	case *testtype == "none":
+		if *path != "" {
+			t.runFile(*path)
+		}
+	case *testtype == "1r":
 		t.testReplicaFailure()
-	case *testtype == 2:
+	case *testtype == "1m":
 		t.testMasterFailure()
-	case *testtype == 3:
+	case *testtype == "2m_o":
 		t.testTwoMasterFailure()
-	case *testtype == 4:
-		t.testLotsofReplicas()
+	case *testtype == "2m_s":
+		t.testDoubleMasterFailure()
+	case *testtype == "fr":
+		t.testFastRecover()
 	}
 
-	time.Sleep(3)
+	t.closeChannelsAndWait()
+	t.Verify()
 }

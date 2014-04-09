@@ -1,9 +1,0 @@
-startnodes 3
-putfile
-putfile
-putfile
-putfile
-putfile
-putfile
-wait 10
-getfile

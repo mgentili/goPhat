@@ -121,7 +121,7 @@ func (s *Server) RPCDB(args *phatdb.DBCommand, reply *phatdb.DBResponse) error {
 		Debug("I'm not the master!")
 		reply.Error = "Not master node"
 		reply.Reply = MasterId
-		return nil
+		return errors.New("Not master node")
 	} else {
 		argsWithChannel := phatdb.DBCommandWithChannel{args, make(chan *phatdb.DBResponse, 1)}
 		switch args.Command {
