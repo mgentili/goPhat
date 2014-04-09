@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"os"
 	"github.com/mgentili/goPhat/level_log"
+	"math/rand"
+	"strconv"
 )
 
 // readLines reads a whole file into memory
@@ -21,6 +23,10 @@ func readLines(path string) ([]string, error) {
 		lines = append(lines, scanner.Text())
 	}
 	return lines, scanner.Err()
+}
+
+func generateRandomString() string {
+	return strconv.Itoa(rand.Int())
 }
 
 func (t *TestMaster) SetupLog() {

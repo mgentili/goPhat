@@ -29,6 +29,7 @@ type ClientState struct {
 	client *phatclient.PhatClient
 	NumCreateMessages int
 	requestChan chan string
+	createdData map[string]string
 }
 
 type TestMaster struct {
@@ -85,6 +86,7 @@ func (t *TestMaster) StartClients() {
 			t.DieClean("Unable to start client")
 		}
 		cli.requestChan = make(chan string, 20)
+		cli.createdData = make(map[string]string)
 		// each request sent to a specific client will be serialized
 		go t.ProcessClientCalls(i)
 	}
@@ -102,12 +104,15 @@ func (t *TestMaster) ProcessClientCalls(client_num int) {
 		r := <-cli.requestChan
 		switch {
 		case r == "CREATE":
-			loc := fmt.Sprintf("/%s%d",cli.client.Uid,cli.NumCreateMessages)
-			_, err := cli.client.Create(loc, fmt.Sprintf("%s's Data", loc))
-			cli.NumCreateMessages+=1
+			loc := fmt.Sprintf("/%s_%d",cli.client.Uid,cli.NumCreateMessages)
+			data := generateRandomString()
+			_, err := cli.client.Create(loc, data)
 			if err != nil {
 				t.log.Printf(DEBUG, "Client call failed :-(")
+				break
 			}
+			cli.NumCreateMessages+=1
+			cli.createdData[loc] = data
 		default:
 			return	
 		}
@@ -214,10 +219,9 @@ func (t *TestMaster) runFile(path string) {
 // TODO: Make local database, and when client calls succeed, add to local database.
 func (t *TestMaster) Verify() {
 	t.log.Printf(DEBUG, "Verifying correctness")
+	num_failures := 0
 	for _, c := range t.Clients {
-		for j:=0; j < c.NumCreateMessages; j++ {
-			loc := fmt.Sprintf("/%s%d", c.client.Uid, j)
-			data := fmt.Sprintf("%s's Data", loc)
+		for loc, data := range c.createdData {
 			res, err := c.client.GetData(loc)
 			if err != nil {
 				t.log.Printf(DEBUG, "Get Data of %s failed", loc)
@@ -226,9 +230,12 @@ func (t *TestMaster) Verify() {
 			t.log.Printf(DEBUG, "Getting data for %s. Expected %s, got %s", loc, data, str)
 			if data != str {
 				t.log.Printf(DEBUG, "FAILED!")
+				num_failures += 1
 			}
 		}
-	}	
+	}
+
+	t.log.Printf(DEBUG, "Total number of failures: %d", num_failures)	
 }
 
 

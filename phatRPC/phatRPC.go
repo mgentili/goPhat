@@ -9,11 +9,19 @@ import (
 	"net"
 	"net/rpc"
 	"os"
+	"fmt"
 )
 
 const DEBUG = 0
 
 var RPC_log *level_log.Logger
+
+/* special object just for RPC calls, so that other methods
+ * can take a Server object and not be considered RPCs
+ */
+/*type RPCServer struct {
+	s *Server
+}*/
 
 type Server struct {
 	ReplicaServer   *vr.Replica
@@ -23,8 +31,9 @@ type Server struct {
 
 type Null struct{}
 
-func Debug(format string, args ...interface{}) {
-	RPC_log.Printf(DEBUG, format, args...)
+func (s *Server) debug(level int, format string, args ...interface{}) {
+	str := fmt.Sprintf("%d: %s", s.ReplicaServer.Rstate.ReplicaNumber, format)
+	RPC_log.Printf(level, str, args...)
 }
 
 // startDB starts the database for the server
@@ -37,7 +46,7 @@ func (s *Server) startDB() {
 func SetupRPCLog() {
 	if RPC_log == nil {
 		levelsToLog := []int{DEBUG}
-		RPC_log = level_log.NewLL(os.Stdout, "RPC: ")
+		RPC_log = level_log.NewLL(os.Stdout, "s")
 		RPC_log.SetLevelsToLog(levelsToLog)
 	}
 }
@@ -51,12 +60,17 @@ func StartServer(address string, replica *vr.Replica) (*rpc.Server, error) {
 		return nil, err
 	}
 
-	newServer := rpc.NewServer()
-
+	
 	serve := new(Server)
 	serve.ReplicaServer = replica
 	serve.startDB()
 
+	newServer := rpc.NewServer()
+	err = newServer.Register(serve)
+	if err != nil {
+		return nil, err
+	}
+	
 	// have to gob.Register this struct so we can pass it through RPC
 	// as a generic interface{} (I don't understand the details that well,
 	// see http://stackoverflow.com/questions/21934730/gob-type-not-registered-for-interface-mapstringinterface)
@@ -80,12 +94,7 @@ func StartServer(address string, replica *vr.Replica) (*rpc.Server, error) {
 		}
 	}
 
-	err = newServer.Register(serve)
-	if err != nil {
-		return nil, err
-	}
-
-	Debug("Server at %s trying to accept new client connections\n", address)
+	serve.debug(DEBUG, "Server at %s trying to accept new client connections\n", address)
 	go newServer.Accept(listener)
 	//log.Println("Accepted new connection?")
 	return newServer, nil
@@ -97,7 +106,6 @@ func (s *Server) getMasterId() uint {
 
 // GetMaster returns the address of the current master replica
 func (s *Server) GetMaster(args *Null, reply *uint) error {
-
 	//if in recovery state, error
 	if s.ReplicaServer.Rstate.Status != vr.Normal {
 		return errors.New("Master Failover")
@@ -116,9 +124,9 @@ func (s *Server) RPCDB(args *phatdb.DBCommand, reply *phatdb.DBResponse) error {
 	//if the server isn't the master, the respond with an error, and send over master's address
 	MasterId := s.getMasterId()
 	Id := s.ReplicaServer.Rstate.ReplicaNumber
-	Debug("Master id: %d, My id: %d", MasterId, Id)
+	s.debug(DEBUG, "Master id: %d, My id: %d", MasterId, Id)
 	if Id != MasterId {
-		Debug("I'm not the master!")
+		s.debug(DEBUG, "I'm not the master!")
 		reply.Error = "Not master node"
 		reply.Reply = MasterId
 		return errors.New("Not master node")
@@ -128,22 +136,22 @@ func (s *Server) RPCDB(args *phatdb.DBCommand, reply *phatdb.DBResponse) error {
 		//if the command is a write, then we need to go through paxos
 		case "CREATE", "DELETE", "SET", "GET":
 			s.ReplicaServer.RunVR(argsWithChannel)
-			Debug("Command committed, waiting for DB response")
+			s.debug(DEBUG, "Command committed, waiting for DB response")
 			result := <-argsWithChannel.Done
 			*reply = *result
-			Debug("Finished write-only")
+			s.debug(DEBUG, "Finished write-only")
 			//paxos(args)
 		default:
 			//for reads we can go directly to the DB
 			//TODO: make sure we have the master lease?
 			// (probably just requires making sure Rstate.Status==Normal because otherwise we wouldn't
 			// be considered master anymore)
-			Debug("Read-only command skips Paxos")
+			s.debug(DEBUG, "Read-only command skips Paxos")
 			s.InputChan <- argsWithChannel
 			result := <-argsWithChannel.Done
 			*reply = *result
 
-			Debug("Finished read-only")
+			s.debug(DEBUG, "Finished read-only")
 		}
 	}
 	return nil

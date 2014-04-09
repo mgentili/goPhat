@@ -53,11 +53,12 @@ func (t *TestMaster) testTwoMasterFailure() {
 
 func (t *TestMaster) testDoubleMasterFailure() {
 	t.ProcessCall("startnodes 5 1")
+	t.ProcessCall("createfile")
 	t.ProcessCall("stopnode 1")
 	t.ProcessCall("stopnode 0")
 	t.ProcessCall("createfile")
+	t.ProcessCall("wait 5")
 	t.ProcessCall("createfile")
-	t.ProcessCall("wait 1")
 	t.ProcessCall("resumenode 1")
 	t.ProcessCall("createfile")
 	t.ProcessCall("wait 1")

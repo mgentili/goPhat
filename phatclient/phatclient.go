@@ -105,12 +105,11 @@ func (c *PhatClient) connectToMaster() error {
 		case <-timer.C:
 			c.log.Printf(DEBUG, "GetMaster timed out!")
 		case <-call.Done:
-			c.log.Printf(STATUS, "Got response from server!")
 			if call.Error == nil {
 				c.log.Printf(STATUS, "The master is %d", c.MasterId)
 				break loop
 			} else {
-				c.log.Printf(DEBUG, "Errored when calling get master %v", call.Error)
+				c.log.Printf(DEBUG, "Errored when asking server %d for master info: %v", c.Id, call.Error)
 			}
 		}
 		
