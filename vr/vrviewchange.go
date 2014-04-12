@@ -41,10 +41,6 @@ func (r *Replica) resetVcstate() {
 	r.Vcstate.DoViewChangeMsgs = make([]DoViewChangeArgs, NREPLICAS)
 }
 
-func (r *Replica) replicaStateInfo() {
-        r.Debug(STATUS, "Replica %d: ViewNumber:%d, OpNumber:%d, CommitNumber:%d\n", r.Rstate.ReplicaNumber, r.Rstate.View, r.Rstate.OpNumber, r.Rstate.CommitNumber)
-}
-
 //A replica notices that a viewchange is needed
 func (r *Replica) PrepareViewChange() {
     r.resetVcstate()
@@ -133,14 +129,12 @@ func (t *RPCReplica) DoViewChange(args *DoViewChangeArgs, reply *int) error {
 	//We have recived enough DoViewChange messages
 	if r.Vcstate.DoViews == uint(F) {
 		r.Debug(STATUS, "PrepareStartView")
-
 		//updates replica state based on replies
 		r.calcMasterView()
 
 		// TODO: we don't technically have a master lease at this point
 		r.BecomeMaster()
 		r.Rstate.Status = Normal
-		r.replicaStateInfo()
 		r.Debug(STATUS, "ViewChangeComplete!")
 
 		//send the StartView messages to all replicas
@@ -164,7 +158,6 @@ func (t *RPCReplica) StartView(args *DoViewChangeArgs, reply *int) error {
 	r.Rstate.Status = Normal
 	r.Rstate.ExtendLease(time.Now().Add(LEASE))
 
-	r.replicaStateInfo()
 	r.resetVcstate()
 	r.Debug(STATUS, "ViewChangeComplete!")
 

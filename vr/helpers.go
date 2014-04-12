@@ -38,8 +38,13 @@ func wrongView() error {
 }
 
 func (r *Replica) Debug(level int, format string, args ...interface{}) {
-	str := fmt.Sprintf("Replica %d: %s", r.Rstate.ReplicaNumber, format)
+	str := fmt.Sprintf("r%d: %s, %s", r.Rstate.ReplicaNumber, r.replicaStateInfo(), format)
 	VR_log.Printf(level, str, args...)
+}
+
+func (r *Replica) replicaStateInfo() string {
+	return fmt.Sprintf("{v: %d, o: %d, c:%d}", r.Rstate.View, r.Rstate.OpNumber, r.Rstate.CommitNumber)
+    //r.Debug(STATUS, "r%d: v:%d, o:%d, c:%d\n", r.Rstate.ReplicaNumber, r.Rstate.View, r.Rstate.OpNumber, r.Rstate.CommitNumber)
 }
 
 func (r *Replica) IsMaster() bool {
