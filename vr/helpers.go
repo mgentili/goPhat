@@ -43,7 +43,11 @@ func (r *Replica) Debug(level int, format string, args ...interface{}) {
 }
 
 func (r *Replica) IsMaster() bool {
-	return r.Rstate.View%(NREPLICAS) == r.Rstate.ReplicaNumber
+	return r.Rstate.View % uint(NREPLICAS) == r.Rstate.ReplicaNumber
+}
+
+func (r *Replica) GetMasterId() uint {
+	return r.Rstate.View % uint(NREPLICAS)
 }
 
 func (mstate *MasterState) Reset() {
@@ -67,4 +71,11 @@ func (r *Replica) DestroyConns(repNum uint) {
 		r.Conns[repNum].Close()
 	}
 	r.ConnLock.Unlock()
+}
+
+func Max(a, b uint) uint {
+	if a < b {
+		return b
+	}
+	return a
 }

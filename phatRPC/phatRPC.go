@@ -60,7 +60,6 @@ func StartServer(address string, replica *vr.Replica) (*rpc.Server, error) {
 		return nil, err
 	}
 
-	
 	serve := new(Server)
 	serve.ReplicaServer = replica
 	serve.startDB()
@@ -100,10 +99,6 @@ func StartServer(address string, replica *vr.Replica) (*rpc.Server, error) {
 	return newServer, nil
 }
 
-func (s *Server) getMasterId() uint {
-	return s.ReplicaServer.Rstate.View % (vr.NREPLICAS)
-}
-
 // GetMaster returns the address of the current master replica
 func (s *Server) GetMaster(args *Null, reply *uint) error {
 	//if in recovery state, error
@@ -111,7 +106,7 @@ func (s *Server) GetMaster(args *Null, reply *uint) error {
 		return errors.New("Master Failover")
 	}
 
-	*reply = s.getMasterId()
+	*reply = s.ReplicaServer.GetMasterId()
 	return nil
 }
 
@@ -122,7 +117,7 @@ func (s *Server) RPCDB(args *phatdb.DBCommand, reply *phatdb.DBResponse) error {
 	}
 
 	//if the server isn't the master, the respond with an error, and send over master's address
-	MasterId := s.getMasterId()
+	MasterId := s.ReplicaServer.GetMasterId()
 	Id := s.ReplicaServer.Rstate.ReplicaNumber
 	s.debug(DEBUG, "Master id: %d, My id: %d", MasterId, Id)
 	if Id != MasterId {

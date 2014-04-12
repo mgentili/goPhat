@@ -6,7 +6,7 @@ import (
 )
 
 type ViewChangeState struct {
-	DoViewChangeMsgs [NREPLICAS]DoViewChangeArgs
+	DoViewChangeMsgs []DoViewChangeArgs
 	DoViewReplies    uint64
 	StartViewReplies uint64
 	StartViews       uint
@@ -38,13 +38,12 @@ type DoViewChangeArgs struct {
 
 func (r *Replica) resetVcstate() {
 	r.Vcstate = ViewChangeState{}
+	r.Vcstate.DoViewChangeMsgs = make([]DoViewChangeArgs, NREPLICAS)
 }
 
 func (r *Replica) replicaStateInfo() {
         r.Debug(STATUS, "Replica %d: ViewNumber:%d, OpNumber:%d, CommitNumber:%d\n", r.Rstate.ReplicaNumber, r.Rstate.View, r.Rstate.OpNumber, r.Rstate.CommitNumber)
 }
-
-
 
 //A replica notices that a viewchange is needed
 func (r *Replica) PrepareViewChange() {
@@ -102,17 +101,17 @@ func (t *RPCReplica) StartViewChange(args *StartViewChangeArgs, reply *int) erro
 			func(r interface{}) bool { return false })
 	}
 
-    //if we have recieved enough StartViewChange messages send DoViewChange
-	if r.Vcstate.StartViews == F && !r.IsMaster() {
+    //if we have recieved enough StartViewChange messages send DoViewChange to new master
+	if r.Vcstate.StartViews == uint(F) && !r.IsMaster() {
 	    r.Debug(STATUS, "Sending DoViewChange")
-        r.Debug(STATUS, "Sending to: %d\n", r.Rstate.View%(NREPLICAS))
+        r.Debug(STATUS, "Sending to: %d\n", r.Rstate.View % uint(NREPLICAS))
 
         //DoViewChange args
         DVCargs := DoViewChangeArgs{r.Rstate.View, r.Rstate.ReplicaNumber,
         r.Phatlog, r.Vcstate.NormalView, r.Rstate.OpNumber, r.Rstate.CommitNumber}
 
         //send to new master
-        r.SendOne(r.Rstate.View%(NREPLICAS), "RPCReplica.DoViewChange", DVCargs, nil)
+        r.SendOne(r.Rstate.View % uint(NREPLICAS), "RPCReplica.DoViewChange", DVCargs, nil)
 	}
 
 	return nil
@@ -132,16 +131,16 @@ func (t *RPCReplica) DoViewChange(args *DoViewChangeArgs, reply *int) error {
 	r.Debug(STATUS, "DoViewChange")
 
 	//We have recived enough DoViewChange messages
-	if r.Vcstate.DoViews == F {
+	if r.Vcstate.DoViews == uint(F) {
 		r.Debug(STATUS, "PrepareStartView")
 
 		//updates replica state based on replies
 		r.calcMasterView()
 
 		// TODO: we don't technically have a master lease at this point
+		r.BecomeMaster()
 		r.Rstate.Status = Normal
 		r.replicaStateInfo()
-		r.BecomeMaster()
 		r.Debug(STATUS, "ViewChangeComplete!")
 
 		//send the StartView messages to all replicas
@@ -160,6 +159,7 @@ func (t *RPCReplica) StartView(args *DoViewChangeArgs, reply *int) error {
 
 	r.Phatlog = args.Log
 	r.Rstate.OpNumber = args.OpNumber
+	r.Rstate.View = args.View //TODO: Note to self (Marco), this addition is necessary, right?
 	r.Rstate.CommitNumber = args.CommitNumber
 	r.Rstate.Status = Normal
 	r.Rstate.ExtendLease(time.Now().Add(LEASE))
@@ -171,37 +171,30 @@ func (t *RPCReplica) StartView(args *DoViewChangeArgs, reply *int) error {
 	return nil
 }
 
-//TODO:Make this more readable
+// calcMasterView updates the new Master's state in accordance with its quorum of received 
+// DoViewChange Messages
 func (r *Replica) calcMasterView() {
 	r.Rstate.View = r.Vcstate.DoViewChangeMsgs[0].View
 
-	var maxOp uint = 0
-	var maxCommit uint = 0
-	var maxIdx uint = 0
-	var maxNormalView uint = 0
 	var maxView uint = 0
+	var maxCommit uint = 0
+	var bestRep = DoViewChangeArgs{}
 
 	for i := 0; i < NREPLICAS; i++ {
-		//this is inefficient, but need to check for case where
-		//replica does not send message
-		if r.Vcstate.DoViewChangeMsgs[i].View > maxView {
-			maxView = r.Vcstate.DoViewChangeMsgs[i].View
-		}
+		DVCM := r.Vcstate.DoViewChangeMsgs[i]
+		
+		//choose highest view and commit number
+		maxView = Max(maxView, DVCM.View)
+		maxCommit = Max(maxCommit, DVCM.CommitNumber)
 
-		if uint(i) != r.Rstate.ReplicaNumber {
-			if r.Vcstate.DoViewChangeMsgs[i].NormalView > maxNormalView || (r.Vcstate.DoViewChangeMsgs[i].NormalView == maxNormalView && r.Vcstate.DoViewChangeMsgs[i].OpNumber > maxOp) {
-				maxOp = r.Vcstate.DoViewChangeMsgs[i].OpNumber
-				maxIdx = uint(i)
-			}
-
-			if r.Vcstate.DoViewChangeMsgs[i].CommitNumber > maxCommit {
-				maxCommit = r.Vcstate.DoViewChangeMsgs[i].CommitNumber
-			}
+		//choose replica with highest (NormalView, OpNumber) pair to determine log
+		if DVCM.NormalView >= bestRep.NormalView && DVCM.OpNumber > bestRep.OpNumber {
+			bestRep = DVCM
 		}
 	}
 
 	r.Rstate.View = maxView
-	r.Phatlog = r.Vcstate.DoViewChangeMsgs[maxIdx].Log
-	r.Rstate.OpNumber = maxOp
 	r.Rstate.CommitNumber = maxCommit
+	r.Phatlog = bestRep.Log
+	r.Rstate.OpNumber = bestRep.OpNumber
 }

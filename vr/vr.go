@@ -10,9 +10,12 @@ import (
 	"time"
 )
 
+var NREPLICAS int
+var F int
+
 const (
-	F         = 2
-	NREPLICAS = 2*F + 1
+//	F         = 2
+//	NREPLICAS = 2*F + 1
 	LEASE     = 2000 * time.Millisecond
 	// how soon master renews lease before actual expiry date. e.g. if lease expires in 100 seconds
 	// the master starts trying to renew the lease after 100/RENEW_FACTOR seconds
@@ -42,7 +45,7 @@ type Replica struct {
 
     // list of replica addresses, in sorted order
 	Config   []string
-	Conns    [NREPLICAS]*rpc.Client
+	Conns    []*rpc.Client
 	ConnLock sync.Mutex
 	Phatlog  *phatlog.Log
 	// function to call to commit to a command
@@ -238,10 +241,13 @@ func (r *Replica) sendCommitMsgs() {
 }
 
 func RunAsReplica(i uint, config []string) *Replica {
+	NREPLICAS = len(config)
+	F = NREPLICAS/2 + 1
 	r := new(Replica)
 	r.Rstate.ReplicaNumber = i
 	r.Config = config
-
+	r.Conns = make([]*rpc.Client, NREPLICAS)
+	
 	r.ReplicaInit()
 
 	go r.ReplicaRun()
@@ -280,7 +286,6 @@ func (r *Replica) ReplicaInit() {
 
 func (r *Replica) ReplicaRun() {
 	newServer := rpc.NewServer()
-
 	rpcreplica := new(RPCReplica)
 	rpcreplica.R = r
 	newServer.Register(rpcreplica)
@@ -350,7 +355,7 @@ func (r *Replica) sendAndRecv(N int, msg string, args interface{}, newReply func
 	assert(N <= NREPLICAS-1)
 	reps := make([]uint, N)
 	i := 0
-	for repNum := uint(0); i < N && repNum < NREPLICAS; repNum++ {
+	for repNum := uint(0); i < N && repNum < uint(NREPLICAS); repNum++ {
 		if repNum == r.Rstate.ReplicaNumber {
 			continue
 		}

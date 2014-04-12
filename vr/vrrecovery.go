@@ -6,7 +6,7 @@ import (
 )
 
 type RecoveryState struct {
-	RecoveryResponseMsgs    [NREPLICAS]RecoveryResponse
+	RecoveryResponseMsgs    []RecoveryResponse
 	RecoveryResponseReplies uint64
 	RecoveryResponses       uint
 	Nonce                   uint
@@ -28,6 +28,8 @@ type RecoveryResponse struct {
 
 func (r *Replica) resetRcvstate() {
 	r.Rcvstate = RecoveryState{}
+	r.Rcvstate.RecoveryResponseMsgs = make([]RecoveryResponse, NREPLICAS)
+
 }
 
 //A replica notices that it needs a recovery
@@ -70,7 +72,7 @@ func (t *RPCReplica) Recovery(args *RecoveryArgs, reply *RecoveryResponse) error
 }
 
 func (r *Replica) handleRecoveryResponse(reply *RecoveryResponse) bool {
-	r.Debug(STATUS, "got recoveryresponse from replica %d", reply.ReplicaNumber)
+	r.Debug(STATUS, "Got recoveryresponse from replica %d", reply.ReplicaNumber)
 
 	//already recieved a recovery response message from this replica
 	if ((1 << reply.ReplicaNumber) & r.Rcvstate.RecoveryResponseReplies) != 0 {
@@ -92,10 +94,10 @@ func (r *Replica) handleRecoveryResponse(reply *RecoveryResponse) bool {
 	}
 
 	// this could be outdated, but it WON'T be outdated once we have F+1 responses
-	var masterId uint = r.Rstate.View % (NREPLICAS)
+	var masterId uint = r.Rstate.View % uint(NREPLICAS)
 
 	//We have recived enough Recovery messages and have recieved from master
-	if r.Rcvstate.RecoveryResponses >= F+1 && ((1<<masterId)&r.Rcvstate.RecoveryResponseReplies) != 0 {
+	if r.Rcvstate.RecoveryResponses >= uint(F+1) && ((1<<masterId)&r.Rcvstate.RecoveryResponseReplies) != 0 {
 		r.Rstate.View = r.Rcvstate.RecoveryResponseMsgs[masterId].View
 		r.Rstate.CommitNumber = r.Rcvstate.RecoveryResponseMsgs[masterId].CommitNumber
 		r.Rstate.OpNumber = r.Rcvstate.RecoveryResponseMsgs[masterId].OpNumber
