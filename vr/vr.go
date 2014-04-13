@@ -48,6 +48,8 @@ type Replica struct {
 	Phatlog  *phatlog.Log
 	// function to call to commit to a command
 	CommitFunc func(command interface{})
+	// ensure each commit only happens once!
+	CommitLock sync.Mutex
 	Listener   net.Listener
 	IsShutdown bool
 }
@@ -305,6 +307,14 @@ func (r *Replica) addLog(command interface{}) {
 }
 
 func (r *Replica) doCommit(cn uint) {
+	r.CommitLock.Lock()
+	needsUnlock := true
+	defer func() {
+		if needsUnlock {
+			r.CommitLock.Unlock()
+		}
+	}()
+
 	if cn <= r.Rstate.CommitNumber {
 		r.Debug(STATUS, "Ignoring commit %d, already commited up to %d", cn, r.Rstate.CommitNumber)
 		return
@@ -313,18 +323,25 @@ func (r *Replica) doCommit(cn uint) {
 		r.PrepareRecovery()
 		return
 	} else if cn > r.Rstate.CommitNumber+1 {
-		r.Debug(STATUS, "need to do extra commits")
+		r.Debug(STATUS, "need to do extra commits to commit to %d", cn)
+		r.CommitLock.Unlock()
 		// we're behind (but have all the log entries, so don't need to state
 		// transfer), so catch up by committing up to the current commit
-		for i := r.Rstate.CommitNumber + 1; i < cn; i++ {
+		// we also recursively commit the *current* (cn) commit. this is because we're releasing
+		// the commit lock during all this, so we want to ensure we redo all the checks
+		// (e.g. in case this commit got committed by someone else in the meantime)
+		for i := r.Rstate.CommitNumber + 1; i <= cn; i++ {
 			r.doCommit(i)
 		}
+		needsUnlock = false
+		return
 	}
 	r.Debug(STATUS, "commiting %d", r.Rstate.CommitNumber+1)
 	if r.CommitFunc != nil {
 		r.CommitFunc(r.Phatlog.GetCommand(r.Rstate.CommitNumber + 1))
 	}
 	r.Rstate.CommitNumber++
+	r.Debug(DEBUG, "committed: %d", r.Rstate.CommitNumber)
 }
 
 func (r *Replica) ClientConnect(repNum uint) (*rpc.Client, error) {
