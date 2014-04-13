@@ -8,16 +8,16 @@ import (
 // handle a given replica's heartbeat response
 func (r *Replica) Heartbeat(replica uint, newTime time.Time) {
 	//assert(r.IsMaster())
-    if !r.IsMaster() {
-        r.Debug(ERROR, "called heartbeat but we're no longer master")
-        return
-    }
+	if !r.IsMaster() {
+		r.Debug(ERROR, "called heartbeat but we're no longer master")
+		return
+	}
 
 	r.Mstate.Heartbeats[replica] = newTime
 
 	sortedTimes := SortTimes(r.Mstate.Heartbeats)
 
-	oldestMajority := len(sortedTimes) - F
+	oldestMajority := len(sortedTimes) - int(F)
 	if oldestMajority < 0 {
 		// not enough heartbeats yet to have a lease
 		return

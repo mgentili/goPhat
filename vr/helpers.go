@@ -44,15 +44,15 @@ func (r *Replica) Debug(level int, format string, args ...interface{}) {
 
 func (r *Replica) replicaStateInfo() string {
 	return fmt.Sprintf("{v: %d, o: %d, c:%d}", r.Rstate.View, r.Rstate.OpNumber, r.Rstate.CommitNumber)
-    //r.Debug(STATUS, "r%d: v:%d, o:%d, c:%d\n", r.Rstate.ReplicaNumber, r.Rstate.View, r.Rstate.OpNumber, r.Rstate.CommitNumber)
+	//r.Debug(STATUS, "r%d: v:%d, o:%d, c:%d\n", r.Rstate.ReplicaNumber, r.Rstate.View, r.Rstate.OpNumber, r.Rstate.CommitNumber)
 }
 
 func (r *Replica) IsMaster() bool {
-	return r.Rstate.View % uint(NREPLICAS) == r.Rstate.ReplicaNumber
+	return r.Rstate.View%NREPLICAS == r.Rstate.ReplicaNumber
 }
 
 func (r *Replica) GetMasterId() uint {
-	return r.Rstate.View % uint(NREPLICAS)
+	return r.Rstate.View % NREPLICAS
 }
 
 func (mstate *MasterState) Reset() {

@@ -40,15 +40,15 @@ func (r *Replica) PrepareRecovery() {
 		return
 	}
 
-    //change state to recovery
+	//change state to recovery
 	r.Rstate.Status = Recovery
 	r.Debug(STATUS, "Starting Recovery")
 
-    //fill RPC args
+	//fill RPC args
 	r.Rcvstate.Nonce = uint(rand.Uint32())
 	args := RecoveryArgs{r.Rstate.ReplicaNumber, r.Rcvstate.Nonce}
 
-    //send Recovery RPCs
+	//send Recovery RPCs
 	go r.sendAndRecv(NREPLICAS-1, "RPCReplica.Recovery", args,
 		func() interface{} { return new(RecoveryResponse) },
 		func(reply interface{}) bool { return r.handleRecoveryResponse(reply.(*RecoveryResponse)) })
@@ -60,7 +60,7 @@ func (t *RPCReplica) Recovery(args *RecoveryArgs, reply *RecoveryResponse) error
 
 	r.Debug(STATUS, "Got Recovery RPC")
 
-    //only send a response if our state is normal
+	//only send a response if our state is normal
 	if r.Rstate.Status != Normal {
 		return nil
 	}
@@ -94,10 +94,10 @@ func (r *Replica) handleRecoveryResponse(reply *RecoveryResponse) bool {
 	}
 
 	// this could be outdated, but it WON'T be outdated once we have F+1 responses
-	var masterId uint = r.Rstate.View % uint(NREPLICAS)
+	var masterId uint = r.Rstate.View % NREPLICAS
 
 	//We have recived enough Recovery messages and have recieved from master
-	if r.Rcvstate.RecoveryResponses >= uint(F+1) && ((1<<masterId)&r.Rcvstate.RecoveryResponseReplies) != 0 {
+	if r.Rcvstate.RecoveryResponses >= F+1 && ((1<<masterId)&r.Rcvstate.RecoveryResponseReplies) != 0 {
 		r.Rstate.View = r.Rcvstate.RecoveryResponseMsgs[masterId].View
 		r.Rstate.CommitNumber = r.Rcvstate.RecoveryResponseMsgs[masterId].CommitNumber
 		r.Rstate.OpNumber = r.Rcvstate.RecoveryResponseMsgs[masterId].OpNumber

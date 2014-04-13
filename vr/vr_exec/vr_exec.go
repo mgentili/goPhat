@@ -2,14 +2,14 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"github.com/mgentili/goPhat/vr"
 	"time"
-	"fmt"
 )
 
 var config []string
 
-var N int 
+var N int
 
 func RunTest(r *vr.Replica) {
 	go func() {
@@ -18,8 +18,8 @@ func RunTest(r *vr.Replica) {
 				time.Sleep(100 * time.Millisecond)
 				continue
 			}
-			//r.RunVR("foo")
-			//r.RunVR("bar")
+			r.RunVR("foo")
+			r.RunVR("bar")
 			time.Sleep(100 * time.Millisecond)
 		}
 	}()
@@ -43,7 +43,7 @@ func main() {
 	indP := flag.Uint("r", 0, "replica num")
 	flag.Parse()
 	config = []string{"127.0.0.1:9000", "127.0.0.1:9001", "127.0.0.1:9002",
-	"127.0.0.1:9003", "127.0.0.1:9004"}
+		"127.0.0.1:9003", "127.0.0.1:9004"}
 	N = len(config)
 	fmt.Printf("Number of servers %d", N)
 	if *oneProcP {

@@ -10,13 +10,13 @@ import (
 	"time"
 )
 
-var NREPLICAS int
-var F int
+var NREPLICAS uint
+var F uint
 
 const (
-//	F         = 2
-//	NREPLICAS = 2*F + 1
-	LEASE     = 2000 * time.Millisecond
+	//	F         = 2
+	//	NREPLICAS = 2*F + 1
+	LEASE = 2000 * time.Millisecond
 	// how soon master renews lease before actual expiry date. e.g. if lease expires in 100 seconds
 	// the master starts trying to renew the lease after 100/RENEW_FACTOR seconds
 	RENEW_FACTOR = 2
@@ -38,12 +38,12 @@ const (
 
 type Replica struct {
 	//Replica State Structs
-    Rstate   ReplicaState
+	Rstate   ReplicaState
 	Mstate   MasterState
 	Vcstate  ViewChangeState
 	Rcvstate RecoveryState
 
-    // list of replica addresses, in sorted order
+	// list of replica addresses, in sorted order
 	Config   []string
 	Conns    []*rpc.Client
 	ConnLock sync.Mutex
@@ -73,7 +73,7 @@ type ReplicaState struct {
 }
 
 type MasterState struct {
-	A int
+	A uint
 	// bit vector of what replicas have replied
 	Replies uint64
 
@@ -241,13 +241,13 @@ func (r *Replica) sendCommitMsgs() {
 }
 
 func RunAsReplica(i uint, config []string) *Replica {
-	NREPLICAS = len(config)
+	NREPLICAS = uint(len(config))
 	F = NREPLICAS/2 + 1
 	r := new(Replica)
 	r.Rstate.ReplicaNumber = i
 	r.Config = config
 	r.Conns = make([]*rpc.Client, NREPLICAS)
-	
+
 	r.ReplicaInit()
 
 	go r.ReplicaRun()
@@ -351,11 +351,11 @@ func (r *Replica) SendOne(repNum uint, msg string, args interface{}, reply inter
 }
 
 // same as sendAndRecvTo but just picks any N replicas
-func (r *Replica) sendAndRecv(N int, msg string, args interface{}, newReply func() interface{}, handler func(reply interface{}) bool) {
+func (r *Replica) sendAndRecv(N uint, msg string, args interface{}, newReply func() interface{}, handler func(reply interface{}) bool) {
 	assert(N <= NREPLICAS-1)
 	reps := make([]uint, N)
-	i := 0
-	for repNum := uint(0); i < N && repNum < uint(NREPLICAS); repNum++ {
+	i := uint(0)
+	for repNum := uint(0); i < N && repNum < NREPLICAS; repNum++ {
 		if repNum == r.Rstate.ReplicaNumber {
 			continue
 		}
@@ -438,10 +438,10 @@ func (r *Replica) sendAndRecvTo(replicas []uint, msg string, args interface{}, n
 				if call.Error == rpc.ErrShutdown {
 					// connection is shutdown so force reconnect
 					r.ConnLock.Lock()
-                    if r.Conns[call.RepNum] != nil {
-					    r.Conns[call.RepNum].Close()
-					    r.Conns[call.RepNum] = nil
-                    }
+					if r.Conns[call.RepNum] != nil {
+						r.Conns[call.RepNum].Close()
+						r.Conns[call.RepNum] = nil
+					}
 					r.ConnLock.Unlock()
 				}
 				// errors from retries are only logged in debug mode
