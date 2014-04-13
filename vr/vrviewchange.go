@@ -131,9 +131,9 @@ func (t *RPCReplica) DoViewChange(args *DoViewChangeArgs, reply *int) error {
 		//updates replica state based on replies
 		r.calcMasterView()
 
+		r.Rstate.Status = Normal
 		// TODO: we don't technically have a master lease at this point
 		r.BecomeMaster()
-		r.Rstate.Status = Normal
 		r.Debug(STATUS, "ViewChangeComplete!")
 
 		//send the StartView messages to all replicas
@@ -187,6 +187,10 @@ func (r *Replica) calcMasterView() {
 
 	r.Rstate.View = maxView
 	r.Rstate.CommitNumber = maxCommit
+	// empty log appears to get sent over RPC as nil, so turn a nil log into an empty log here
+	if bestRep.Log == nil {
+		bestRep.Log = phatlog.EmptyLog()
+	}
 	r.Phatlog = bestRep.Log
 	r.Rstate.OpNumber = bestRep.OpNumber
 }

@@ -14,8 +14,6 @@ var NREPLICAS uint
 var F uint
 
 const (
-	//	F         = 2
-	//	NREPLICAS = 2*F + 1
 	LEASE = 2000 * time.Millisecond
 	// how soon master renews lease before actual expiry date. e.g. if lease expires in 100 seconds
 	// the master starts trying to renew the lease after 100/RENEW_FACTOR seconds
@@ -242,7 +240,7 @@ func (r *Replica) sendCommitMsgs() {
 
 func RunAsReplica(i uint, config []string) *Replica {
 	NREPLICAS = uint(len(config))
-	F = NREPLICAS/2 + 1
+	F = NREPLICAS / 2
 	r := new(Replica)
 	r.Rstate.ReplicaNumber = i
 	r.Config = config
@@ -251,9 +249,9 @@ func RunAsReplica(i uint, config []string) *Replica {
 	r.ReplicaInit()
 
 	go r.ReplicaRun()
-	if r.IsMaster() {
-		r.BecomeMaster()
-	}
+
+	// start in view change mode, so we can figure out who will be the master
+	r.PrepareViewChange()
 
 	return r
 }

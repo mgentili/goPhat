@@ -48,7 +48,8 @@ func (r *Replica) replicaStateInfo() string {
 }
 
 func (r *Replica) IsMaster() bool {
-	return r.Rstate.View%NREPLICAS == r.Rstate.ReplicaNumber
+	// only consider ourself master if we're in Normal state!
+	return r.Rstate.View%NREPLICAS == r.Rstate.ReplicaNumber && r.Rstate.Status == Normal
 }
 
 func (r *Replica) GetMasterId() uint {

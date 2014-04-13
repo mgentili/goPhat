@@ -35,7 +35,7 @@ func (r *Replica) resetRcvstate() {
 //A replica notices that it needs a recovery
 func (r *Replica) PrepareRecovery() {
 
-	//timeout occurs but we are already in recovery
+	// already in recovery
 	if r.Rstate.Status == Recovery {
 		return
 	}
@@ -43,6 +43,8 @@ func (r *Replica) PrepareRecovery() {
 	//change state to recovery
 	r.Rstate.Status = Recovery
 	r.Debug(STATUS, "Starting Recovery")
+
+	r.resetRcvstate()
 
 	//fill RPC args
 	r.Rcvstate.Nonce = uint(rand.Uint32())
