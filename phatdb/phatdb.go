@@ -1,7 +1,11 @@
- package phatdb
+package phatdb
 
-// TODO: https://groups.google.com/forum/#!topic/golang-nuts/ct99dtK2Jo4
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/gob"
+	"encoding/hex"
+	"log"
 	"os"
 	"strings"
 )
@@ -22,7 +26,7 @@ type DataNode struct {
 }
 
 type FileNode struct {
-	Parent   *FileNode
+	//Parent   *FileNode
 	Children map[string]*FileNode
 	Data     *DataNode
 }
@@ -42,7 +46,7 @@ func traverseToNode(root *FileNode, parts []string, createMissing bool) (*FileNo
 			}
 			// Create any missing nodes along the way
 			temp.Children[part] = &FileNode{}
-			temp.Children[part].Parent = temp
+			//temp.Children[part].Parent = temp
 			temp = temp.Children[part]
 			temp.Children = make(map[string]*FileNode)
 			temp.Data = &DataNode{}
@@ -69,7 +73,11 @@ func deleteNode(root *FileNode, path string) (*StatNode, error) {
 	if err != nil {
 		return nil, err
 	}
-	p := n.Parent
+	//p := n.Parent
+	p, err := traverseToNode(root, parts[:len(parts)-1], false)
+	if err != nil {
+		return nil, err
+	}
 	delete(p.Children, parts[len(parts)-1])
 	return n.Data.Stats, nil
 }
@@ -116,4 +124,19 @@ func setNode(root *FileNode, path string, val string) (*DataNode, error) {
 func _setNode(n *FileNode, val string) {
 	n.Data.Value = val
 	n.Data.Stats.Version += 1
+}
+
+func hashNode(root *FileNode) string {
+	var dbState bytes.Buffer
+	// Encode the database state
+	enc := gob.NewEncoder(&dbState)
+	err := enc.Encode(root)
+	if err != nil {
+		log.Fatal("Cannot hash the database state")
+	}
+	// Hash the database state
+	hash := sha256.New()
+	hash.Write(dbState.Bytes())
+	md := hash.Sum(nil)
+	return hex.EncodeToString(md)
 }

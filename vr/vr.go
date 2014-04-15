@@ -46,12 +46,16 @@ type Replica struct {
 	Conns    []*rpc.Client
 	ConnLock sync.Mutex
 	Phatlog  *phatlog.Log
-	// function to call to commit to a command
-	CommitFunc func(command interface{})
+	// opaque data passed to each command's CommitFunc
+	Context interface{}
 	// ensure each commit only happens once!
 	CommitLock sync.Mutex
 	Listener   net.Listener
 	IsShutdown bool
+}
+
+type Command interface {
+	CommitFunc(interface{})
 }
 
 /* special object just for RPC calls, so that other methods
@@ -174,7 +178,7 @@ func (t *RPCReplica) Commit(args *CommitArgs, reply *HeartbeatReply) error {
 	return nil
 }
 
-func (r *Replica) RunVR(command interface{}) {
+func (r *Replica) RunVR(command Command) {
 	assert(r.IsMaster())
 
 	assert(r.Rstate.OpNumber >= r.Rstate.CommitNumber)
@@ -337,9 +341,7 @@ func (r *Replica) doCommit(cn uint) {
 		return
 	}
 	r.Debug(STATUS, "commiting %d", r.Rstate.CommitNumber+1)
-	if r.CommitFunc != nil {
-		r.CommitFunc(r.Phatlog.GetCommand(r.Rstate.CommitNumber + 1))
-	}
+	r.Phatlog.GetCommand(r.Rstate.CommitNumber + 1).(Command).CommitFunc(r.Context)
 	r.Rstate.CommitNumber++
 	r.Debug(DEBUG, "committed: %d", r.Rstate.CommitNumber)
 }

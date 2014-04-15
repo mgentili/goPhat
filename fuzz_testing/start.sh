@@ -2,8 +2,5 @@
 
 test_type=$1
 
-cd fuzz_testing_exec
-go install
-cd ../
-go install
+./install.sh
 fuzz_testing --test $test_type

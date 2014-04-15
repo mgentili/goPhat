@@ -1,11 +1,20 @@
 package main
 
 import (
+	"encoding/gob"
 	"flag"
 	"fmt"
 	"github.com/mgentili/goPhat/vr"
 	"time"
 )
+
+type VR_exec_command struct {
+	S string
+}
+
+func (VR_exec_command) CommitFunc(context interface{}) {
+	// commit is just a no-op for us
+}
 
 var config []string
 
@@ -18,8 +27,8 @@ func RunTest(r *vr.Replica) {
 				time.Sleep(100 * time.Millisecond)
 				continue
 			}
-			r.RunVR("foo")
-			r.RunVR("bar")
+			r.RunVR(VR_exec_command{"foo"})
+			r.RunVR(VR_exec_command{"bar"})
 			time.Sleep(100 * time.Millisecond)
 		}
 	}()
@@ -39,6 +48,8 @@ func FailRep(shutdownRep uint, reps []*vr.Replica) {
 }
 
 func main() {
+	gob.Register(VR_exec_command{})
+
 	oneProcP := flag.Bool("one", false, "Run VR in 1 process")
 	indP := flag.Uint("r", 0, "replica num")
 	flag.Parse()

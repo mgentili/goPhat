@@ -107,3 +107,20 @@ func TestGetChildren(t *testing.T) {
 		t.Errorf("getChildren: wanted %v, received %v", children, names)
 	}
 }
+
+func TestHashDB(t *testing.T) {
+	root := setup()
+	expected := "55c8e1bda0453b939ff4b403e418931485841ec44c3256877d4509cd6b0c4199"
+	if hashNode(root) != expected {
+		t.Errorf("Database does not hash to expected value: %v instead of %v", hashNode(root), expected)
+	}
+	//
+	_, err := createNode(root, "/dev/null", "empty")
+	if err != nil {
+		t.Errorf("Create node failed")
+	}
+	expected = "e154e0661633e98ef88150d6ae5e2b80a2cdc198b43f684b63d0640178b2fed9"
+	if hashNode(root) != expected {
+		t.Errorf("Database does not hash to expected value: %v instead of %v", hashNode(root), expected)
+	}
+}
