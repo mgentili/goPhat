@@ -4,6 +4,30 @@ import (
 	"testing"
 )
 
+func TestDatabaseHash(t *testing.T) {
+	input := make(chan DBCommandWithChannel)
+	go DatabaseServer(input)
+	//
+	hashCmd := DBCommandWithChannel{&DBCommand{"SHA256", "", ""}, make(chan *DBResponse)}
+	input <- hashCmd
+	expected := "55c8e1bda0453b939ff4b403e418931485841ec44c3256877d4509cd6b0c4199"
+	if resp := <-hashCmd.Done; resp.Reply != expected || resp.Error != "" {
+		t.Errorf("Hash returned %v instead of %v", resp.Reply, expected)
+	}
+	//
+	createCmd := DBCommandWithChannel{&DBCommand{"CREATE", "/dev/null", "empty"}, make(chan *DBResponse)}
+	input <- createCmd
+	if resp := <-createCmd.Done; (resp.Reply.(*DataNode)).Value != "empty" || resp.Error != "" {
+		t.Errorf("CREATE that should work has failed")
+	}
+	//
+	input <- hashCmd
+	expected = "e154e0661633e98ef88150d6ae5e2b80a2cdc198b43f684b63d0640178b2fed9"
+	if resp := <-hashCmd.Done; resp.Reply != expected || resp.Error != "" {
+		t.Errorf("Hash returned %v instead of %v", resp.Reply, expected)
+	}
+}
+
 func TestDatabaseServer(t *testing.T) {
 	input := make(chan DBCommandWithChannel)
 	go DatabaseServer(input)
