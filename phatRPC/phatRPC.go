@@ -3,13 +3,13 @@ package phatRPC
 import (
 	"encoding/gob"
 	"errors"
+	"fmt"
 	"github.com/mgentili/goPhat/level_log"
 	"github.com/mgentili/goPhat/phatdb"
 	"github.com/mgentili/goPhat/vr"
 	"net"
 	"net/rpc"
 	"os"
-	"fmt"
 )
 
 const DEBUG = 0
@@ -30,6 +30,26 @@ type Server struct {
 }
 
 type Null struct{}
+
+// wraps a DB command to conform to the vr.Command interface
+type CommandFunctor struct {
+	Command phatdb.DBCommandWithChannel
+}
+
+func (c CommandFunctor) CommitFunc(context interface{}) {
+	server := context.(*Server)
+	argsWithChannel := c.Command
+	// we make our own DBCommandWithChannel so we (VR) can make sure the DB has committed before continuing on
+	newArgsWithChannel := phatdb.DBCommandWithChannel{argsWithChannel.Cmd, make(chan *phatdb.DBResponse)}
+	server.InputChan <- newArgsWithChannel
+	// wait til the DB has actually committed the transaction
+	result := <-newArgsWithChannel.Done
+	// and pass the result along to the server-side RPC
+	// (if we're not master .Done will be nil since channels aren't passed over RPC)
+	if argsWithChannel.Done != nil {
+		argsWithChannel.Done <- result
+	}
+}
 
 func (s *Server) debug(level int, format string, args ...interface{}) {
 	str := fmt.Sprintf("%d: %s", s.ReplicaServer.Rstate.ReplicaNumber, format)
@@ -63,35 +83,22 @@ func StartServer(address string, replica *vr.Replica) (*rpc.Server, error) {
 	serve := new(Server)
 	serve.ReplicaServer = replica
 	serve.startDB()
+	replica.Context = serve
 
 	newServer := rpc.NewServer()
 	err = newServer.Register(serve)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// have to gob.Register this struct so we can pass it through RPC
 	// as a generic interface{} (I don't understand the details that well,
 	// see http://stackoverflow.com/questions/21934730/gob-type-not-registered-for-interface-mapstringinterface)
+	gob.Register(CommandFunctor{})
 	gob.Register(phatdb.DBCommandWithChannel{})
 	// Need to register all types that are returned within the DBResponse
 	gob.Register(phatdb.DataNode{})
 	gob.Register(phatdb.StatNode{})
-
-	// closure to be called whenever VR wants to do a DB commit
-	replica.CommitFunc = func(command interface{}) {
-		argsWithChannel := command.(phatdb.DBCommandWithChannel)
-		// we make our own DBCommandWithChannel so we (VR) can make sure the DB has committed before continuing on
-		newArgsWithChannel := phatdb.DBCommandWithChannel{argsWithChannel.Cmd, make(chan *phatdb.DBResponse)}
-		serve.InputChan <- newArgsWithChannel
-		// wait til the DB has actually committed the transaction
-		result := <-newArgsWithChannel.Done
-		// and pass the result along to the server-side RPC
-		// (if we're not master .Done will be nil since channels aren't passed over RPC)
-		if argsWithChannel.Done != nil {
-			argsWithChannel.Done <- result
-		}
-	}
 
 	serve.debug(DEBUG, "Server at %s trying to accept new client connections\n", address)
 	go newServer.Accept(listener)
@@ -130,7 +137,7 @@ func (s *Server) RPCDB(args *phatdb.DBCommand, reply *phatdb.DBResponse) error {
 		switch args.Command {
 		//if the command is a write, then we need to go through paxos
 		case "CREATE", "DELETE", "SET", "GET":
-			s.ReplicaServer.RunVR(argsWithChannel)
+			s.ReplicaServer.RunVR(CommandFunctor{argsWithChannel})
 			s.debug(DEBUG, "Command committed, waiting for DB response")
 			result := <-argsWithChannel.Done
 			*reply = *result
