@@ -4,7 +4,7 @@
 F=$1
 SEED=$2
 RUNS=$3
-LOC=$4
+LOC=$4  # Look at using mktemp / tempfile?
 N=$((F * 2 + 1))
 
 # functions
@@ -39,8 +39,5 @@ timer_total
 
 #time timer_total
 
-cd fuzz_testing_exec
-go install
-cd ../
-go install
+./install.sh
 fuzz_testing --path $LOC

@@ -67,6 +67,8 @@ func DatabaseServer(input chan DBCommandWithChannel) {
 			if err != nil {
 				resp.Error = err.Error()
 			}
+		case "SHA256":
+			resp.Reply = hashNode(root)
 		default:
 			resp.Error = "Unknown command"
 		}
