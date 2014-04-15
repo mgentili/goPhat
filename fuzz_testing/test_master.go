@@ -85,7 +85,7 @@ func (t *TestMaster) StartClients() {
 		if err != nil {
 			t.DieClean("Unable to start client")
 		}
-		cli.requestChan = make(chan string, 20)
+		cli.requestChan = make(chan string, 1000)
 		cli.createdData = make(map[string]string)
 		// each request sent to a specific client will be serialized
 		go t.ProcessClientCalls(i)
@@ -106,13 +106,14 @@ func (t *TestMaster) ProcessClientCalls(client_num int) {
 		case r == "CREATE":
 			loc := fmt.Sprintf("/%s_%d",cli.client.Uid,cli.NumCreateMessages)
 			data := generateRandomString()
+			t.log.Printf(DEBUG, "Creating %s", loc)
 			_, err := cli.client.Create(loc, data)
+			cli.NumCreateMessages+=1
+			cli.createdData[loc] = data
 			if err != nil {
 				t.log.Printf(DEBUG, "Client call failed :-(")
 				break
 			}
-			cli.NumCreateMessages+=1
-			cli.createdData[loc] = data
 		default:
 			return	
 		}
@@ -138,49 +139,71 @@ func (t *TestMaster) StartNode(i int) error {
 	return nil
 }
 
-func (t *TestMaster) CheckValidCommand(i int) bool {
-	return (t.NumAliveReplicas-1)*2 > t.NumReplicas && t.ReplicaStatus[i] == ALIVE
+func (t *TestMaster) SufficientReplicas() bool {
+	return (t.NumAliveReplicas-1)*2 > t.NumReplicas
 }
 
-// KillNode kills a given node (kills the corresponding process)
-func (t *TestMaster) KillNode(i int) error {
-	if !t.CheckValidCommand(i) {
-		return nil
+// KillNode kills the first node that is alive starting from index i
+func (t *TestMaster) KillNode(i int) {
+	currNode := i
+	for {
+		if !t.SufficientReplicas() {
+			return
+		}
+		if t.ReplicaStatus[currNode] == ALIVE {
+			t.log.Printf(DEBUG, "Killing node %d\n", currNode)
+			err := t.ReplicaProcesses[currNode].Process.Kill()
+			if err != nil {
+				t.DieClean(err)
+			}
+			t.NumAliveReplicas -= 1
+			t.ReplicaStatus[currNode] = KILLED
+		}
+		currNode = (currNode + 1) % t.NumReplicas
 	}
-	t.log.Printf(DEBUG, "Killing node %d\n", i)
-	err := t.ReplicaProcesses[i].Process.Kill()
-	if err != nil {
-		t.DieClean(err)
-	}
-	t.NumAliveReplicas -= 1
-	t.ReplicaStatus[i] = KILLED
-	return err
+	return
 }
 
-// StopNode stops a given node (stops the corresponding process)
-func (t *TestMaster) StopNode(i int) error {
-	
-	if !t.CheckValidCommand(i) {
-		return nil
+// StopNode stops the first node that is alive starting from index i
+func (t *TestMaster) StopNode(i int) {
+	currNode := i
+	for {
+		if !t.SufficientReplicas() {
+			return
+		}
+		if t.ReplicaStatus[currNode] == ALIVE {
+			t.log.Printf(DEBUG, "Stopping node %d\n", currNode)
+			err := t.ReplicaProcesses[currNode].Process.Signal(syscall.SIGSTOP)
+			if err != nil {
+				t.DieClean(err)
+			}
+			t.NumAliveReplicas -= 1
+			t.ReplicaStatus[currNode] = STOPPED
+			return
+		}
+		currNode = (currNode + 1) % t.NumReplicas
 	}
-	t.log.Printf(DEBUG, "Stopping node %d!", i)
-	t.ReplicaProcesses[i].Process.Signal(syscall.SIGSTOP)
-	t.NumAliveReplicas -= 1
-	t.ReplicaStatus[i] = STOPPED
-	return nil
 }
 
-// ResumeNode resumes a given node (must have been stopped before)
-func (t *TestMaster) ResumeNode(i int) error {
-	
-	if t.ReplicaStatus[i] != STOPPED {
-		return nil
+// ResumeNode resumes the first node that is stopped starting from index i
+func (t *TestMaster) ResumeNode(i int) {
+	currNode := i
+	for {
+		if t.ReplicaStatus[currNode] == STOPPED {
+			t.log.Printf(DEBUG, "Resuming node %d\n", currNode)
+			err := t.ReplicaProcesses[currNode].Process.Signal(syscall.SIGCONT)
+			if err != nil {
+				t.DieClean(err)
+			}
+			t.NumAliveReplicas += 1
+			t.ReplicaStatus[currNode] = ALIVE
+			return
+		}
+		currNode = (currNode + 1) % t.NumReplicas
+		if currNode == i {
+			return
+		}
 	}
-	t.log.Printf(DEBUG, "Resuming node %d!", i)
-	t.ReplicaProcesses[i].Process.Signal(syscall.SIGCONT)
-	t.NumAliveReplicas += 1
-	t.ReplicaStatus[i] = ALIVE
-	return nil
 }
 
 func (t *TestMaster) ProcessCall(s string) {
@@ -197,8 +220,8 @@ func (t *TestMaster) ProcessCall(s string) {
 		node, _ := strconv.Atoi(command[1])
 		t.ResumeNode(node)
 	case command[0] == "wait":
-		seconds, _ := strconv.Atoi(command[1])
-		time.Sleep(time.Duration(seconds) * time.Second)
+		ms, _ := strconv.Atoi(command[1])
+		time.Sleep(time.Duration(ms) * time.Millisecond)
 	case command[0] == "createfile":
 		t.Clients[0].requestChan<-"CREATE"
 	}
@@ -218,13 +241,13 @@ func (t *TestMaster) runFile(path string) {
 // Verify checks that the replica state (database) agrees with the local database
 // TODO: Make local database, and when client calls succeed, add to local database.
 func (t *TestMaster) Verify() {
-	t.log.Printf(DEBUG, "Verifying correctness")
+	t.log.Printf(DEBUG, "Verifying correctness. Data created %v", t.Clients[0].createdData)
 	num_failures := 0
 	for _, c := range t.Clients {
 		for loc, data := range c.createdData {
 			res, err := c.client.GetData(loc)
 			if err != nil {
-				t.log.Printf(DEBUG, "Get Data of %s failed", loc)
+				t.log.Printf(DEBUG, "Get Data of %s failed with %s", loc, err)
 			}
 			str := res.Value
 			t.log.Printf(DEBUG, "Getting data for %s. Expected %s, got %s", loc, data, str)
@@ -261,8 +284,8 @@ func main() {
 		t.testTwoMasterFailure()
 	case *testtype == "2m_s":
 		t.testDoubleMasterFailure()
-	case *testtype == "fr":
-		t.testFastRecover()
+	case *testtype == "cmf":
+		t.testCascadingMasterFailure()
 	}
 
 	t.closeChannelsAndWait()

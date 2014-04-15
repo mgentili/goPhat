@@ -23,9 +23,9 @@ function timer_total() {
         elif [ $R -le 15000 ];
         then
             echo "stopnode" $((CHILD_SEED % N)) >> $LOC
-        elif [ $R -le 20000 ];
+        elif [ $R -le 30000 ];
         then
-            echo "wait" $((CHILD_SEED % 3)) >> $LOC
+            echo "wait" $((CHILD_SEED % 1000)) >> $LOC
         else
             echo "resumenode" $((CHILD_SEED % N)) >> $LOC
         fi

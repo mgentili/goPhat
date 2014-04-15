@@ -65,13 +65,13 @@ func NewClient(servers []string, id uint, uid string) (*PhatClient, error) {
 	c.Uid = uid
 	c.Timeout = DefaultTimeout
 	c.SetupClientLog()
-	err := c.connectToServer(id)
+	err := c.ConnectToServer(id)
 	if err != nil {
 		c.log.Printf(DEBUG, "NewClient failed to connect client to server with id %d, error %s", id, err.Error())
 		return nil, err
 	}
 
-	err = c.connectToMaster()
+	err = c.ConnectToMaster()
 	if err != nil {
 		c.log.Printf(DEBUG, "NewClient failed to connect client to the master server, error %s", err.Error())
 		return c, err
@@ -81,7 +81,7 @@ func NewClient(servers []string, id uint, uid string) (*PhatClient, error) {
 }
 
 // connectToAnyServer connects client to server with given index
-func (c *PhatClient) connectToServer(index uint) error {
+func (c *PhatClient) ConnectToServer(index uint) error {
 	c.log.Printf(STATUS, "Trying to connect to server %d", index)
 	client, err := rpc.Dial("tcp", c.ServerLocations[index])
 	if err != nil {
@@ -94,7 +94,7 @@ func (c *PhatClient) connectToServer(index uint) error {
 	}
 
 // connectToMaster connects client to the current master node
-func (c *PhatClient) connectToMaster() error {
+func (c *PhatClient) ConnectToMaster() error {
 	c.log.Printf(STATUS, "Trying to connect to master %d", c.MasterId)
 	//connect to any server, and get the master id
 	loop:
@@ -115,14 +115,14 @@ func (c *PhatClient) connectToMaster() error {
 		
 		//if problem with RPC or server is in recovery, need to connect to different server
 		time.Sleep(DefaultTimeout/10)
-		c.connectToServer((c.Id + uint(i+1)) % c.NumServers)
+		c.ConnectToServer((c.Id + uint(i+1)) % c.NumServers)
 	}
 
 	// If the currently connected server isn't the master, connect to master
 	if c.MasterId != c.Id {
 		c.log.Printf(STATUS, "Called Server.GetMaster, current master id is %d, my id is %d",
 			c.MasterId, c.Id)
-		err := c.connectToServer(c.MasterId)
+		err := c.ConnectToServer(c.MasterId)
 		if err != nil {
 			return err
 		}
@@ -137,7 +137,7 @@ func (c *PhatClient) connectToMaster() error {
 func (c *PhatClient) processCallWithRetry(args *phatdb.DBCommand) (*phatdb.DBResponse, error) {
 	reply := &phatdb.DBResponse{}
 	timer := time.NewTimer(DefaultTimeout)
-	giveupTimer := time.NewTimer(DefaultTimeout*5)
+	giveupTimer := time.NewTimer(DefaultTimeout*10)
 
 	var replyErr error
 
@@ -149,7 +149,7 @@ func (c *PhatClient) processCallWithRetry(args *phatdb.DBCommand) (*phatdb.DBRes
 			return nil, errors.New("Completely timed out")
 		case <-timer.C:
 			c.log.Printf(DEBUG, "Single call timed out")
-			c.connectToMaster()
+			c.ConnectToMaster()
 		case <-dbCall.Done:
 			if dbCall.Error == nil {
 				c.log.Printf(STATUS, "Call done with no error")
@@ -162,7 +162,7 @@ func (c *PhatClient) processCallWithRetry(args *phatdb.DBCommand) (*phatdb.DBRes
 			c.log.Printf(DEBUG, "Call failed with error %v", dbCall.Error)
 			time.Sleep(DefaultTimeout / 10)
 			//error possibilities 1) network failure 2) server can't process request
-			c.connectToMaster()
+			c.ConnectToMaster()
 		}
 	}
 }
