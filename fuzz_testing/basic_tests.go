@@ -1,7 +1,7 @@
 package main
 
 func (t *TestMaster) testReplicaFailure() {
-	t.ProcessCall("startnodes 3 1")
+	t.ProcessCall("startnodes 3")
 	t.ProcessCall("createfile")
 	t.ProcessCall("wait 1000")
 	t.ProcessCall("stopnode 2")
@@ -11,7 +11,7 @@ func (t *TestMaster) testReplicaFailure() {
 }
 
 func (t *TestMaster) testTwoReplicaFailure() {
-	t.ProcessCall("startnodes 5 1")
+	t.ProcessCall("startnodes 5")
 	t.ProcessCall("createfile")
 	t.ProcessCall("wait 1000")
 	t.ProcessCall("stopnode 2")
@@ -24,7 +24,7 @@ func (t *TestMaster) testTwoReplicaFailure() {
 }
 
 func (t *TestMaster) testMasterFailure() {
-	t.ProcessCall("startnodes 3 1")
+	t.ProcessCall("startnodes 3")
 	t.ProcessCall("createfile")
 	t.ProcessCall("wait 1000")
 	t.ProcessCall("stopnode 1")
@@ -34,7 +34,7 @@ func (t *TestMaster) testMasterFailure() {
 }
 
 func (t *TestMaster) testTwoMasterFailure() {
-	t.ProcessCall("startnodes 5 1")
+	t.ProcessCall("startnodes 5")
 	t.ProcessCall("createfile")
 	t.ProcessCall("wait 100")
 	t.ProcessCall("stopnode 1")
@@ -52,7 +52,7 @@ func (t *TestMaster) testTwoMasterFailure() {
 }
 
 func (t *TestMaster) testDoubleMasterFailure() {
-	t.ProcessCall("startnodes 5 1")
+	t.ProcessCall("startnodes 5")
 	t.ProcessCall("createfile")
 	t.ProcessCall("stopnode 1")
 	t.ProcessCall("stopnode 2")
@@ -67,7 +67,7 @@ func (t *TestMaster) testDoubleMasterFailure() {
 }
 
 func (t *TestMaster) testCascadingMasterFailure() {
-	t.ProcessCall("startnodes 5 1")
+	t.ProcessCall("startnodes 5")
 	t.ProcessCall("stopnode 1")
 	t.ProcessCall("createfile")
 	t.ProcessCall("wait 3000")
@@ -88,7 +88,7 @@ func (t *TestMaster) testCascadingMasterFailure() {
 }
 
 func (t *TestMaster) testLotsofReplicas() {
-	t.ProcessCall("startnodes 5 1")
+	t.ProcessCall("startnodes 5")
 	t.ProcessCall("createfile")
 	t.ProcessCall("createfile")
 	t.ProcessCall("createfile")

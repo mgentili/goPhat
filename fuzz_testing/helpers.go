@@ -8,6 +8,7 @@ import (
 	"strconv"
 )
 
+
 // readLines reads a whole file into memory
 // and returns a slice of its lines (assuming one int per line).
 func readLines(path string) ([]string, error) {
@@ -46,16 +47,6 @@ func (t *TestMaster) cleanup() {
 		}
 	}
 }
-
-// closeChannelsAndWait closes all of the client request channels
-// and waits until all clients have finished their calls
-func (t *TestMaster) closeChannelsAndWait() {
-	for i:=0; i < t.NumClients; i++ {
-		close(t.Clients[i].requestChan)
-	}
-
-	t.wg.Wait()
- }
 
 // Go doesn't have an atexit
 // https://groups.google.com/d/msg/golang-nuts/qBQ0bK2zvQA/vmOu9uhkYH0J

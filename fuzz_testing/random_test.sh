@@ -4,8 +4,14 @@
 F=$1
 SEED=$2
 RUNS=$3
-LOC=$4  # Look at using mktemp / tempfile?
 N=$((F * 2 + 1))
+
+
+LOC=$(mktemp /tmp/gophat.XXXXXXX)
+if [ 0 -ne $? ]; then
+echoerr "Could not create a temporary file, cannot complete"
+    exit 1
+fi
 
 # functions
 
@@ -33,7 +39,7 @@ function timer_total() {
 }
 
 # executable portion
-echo "startnodes" $N 1 > $LOC
+echo "startnodes" $N > $LOC
 RANDOM=$SEED
 timer_total
 
@@ -41,3 +47,5 @@ timer_total
 
 ./install.sh
 fuzz_testing --path $LOC
+
+rm -f $LOC
