@@ -8,6 +8,10 @@ import (
 	"strconv"
 )
 
+func (t *TestMaster) Debug(level int, format string, args ...interface{}) {
+	t.log.Printf(level, format, args...)
+}
+
 // readLines reads a whole file into memory
 // and returns a slice of its lines (assuming one int per line).
 func readLines(path string) ([]string, error) {

@@ -51,7 +51,7 @@ func (t *TestMaster) Setup(nr int) {
 	t.CreatedData = make(map[string]string)
 	t.SetupLog()
 
-	t.log.Printf(DEBUG, "Starting %d nodes\n", nr)
+	t.Debug(DEBUG, "Starting %d nodes\n", nr)
 
 	for i := 0; i < nr; i++ {
 		t.Server_Locations[i] = fmt.Sprintf("%s:%d", HOST, INIT_SERVER_PORT+i)
@@ -73,7 +73,7 @@ func (t *TestMaster) StartClient(i int, uid int) *phatclient.PhatClient {
 		if t.ReplicaStatus[currNode] == ALIVE {
 			cli, err := phatclient.NewClient(t.RPC_Locations, uint(currNode), fmt.Sprintf("c%d", uid))
 			if err != nil {
-				t.log.Printf(DEBUG, "Unable connect client with request %d to replica %d\n", uid, currNode)
+				t.Debug(DEBUG, "Unable connect client with request %d to replica %d\n", uid, currNode)
 			}
 			return cli
 		}
@@ -92,7 +92,7 @@ func (t *TestMaster) ProcessCreate(uid int) {
 	cli := t.StartClient(0, uid)
 	_ , err := cli.Create(loc, data)
 	if err != nil {
-		t.log.Printf(DEBUG, "Client call failed :-(")
+		t.Debug(DEBUG, "Client call failed :-(")
 	} else {
 		t.ClientLock.Lock()
 		t.NumSuccessfulCalls += 1
@@ -143,7 +143,7 @@ func (t *TestMaster) StopNode(i int) {
 			return
 		}
 		if t.ReplicaStatus[currNode] == ALIVE {
-			t.log.Printf(DEBUG, "Stopping node %d\n", currNode)
+			t.Debug(DEBUG, "Stopping node %d\n", currNode)
 			t.Replicas[currNode].Disconnect()
 			t.NumAliveReplicas -= 1
 			t.ReplicaStatus[currNode] = STOPPED
@@ -158,7 +158,7 @@ func (t *TestMaster) ResumeNode(i int) {
 	currNode := i
 	for {
 		if t.ReplicaStatus[currNode] == STOPPED {
-			t.log.Printf(DEBUG, "Resuming node %d\n", currNode)
+			t.Debug(DEBUG, "Resuming node %d\n", currNode)
 			t.Replicas[currNode].Reconnect()
 			t.NumAliveReplicas += 1
 			t.ReplicaStatus[currNode] = ALIVE
@@ -188,8 +188,9 @@ func (t *TestMaster) ProcessCall(s string) {
 		time.Sleep(time.Duration(ms) * time.Millisecond)
 	case command[0] == "createfile":
 		t.wg.Add(1)
+		uid := t.NumCalls
 		go func() {
-			t.ProcessCreate(t.NumCalls)
+			t.ProcessCreate(uid)
 			t.wg.Done()
 		}()
 		t.NumCalls += 1
@@ -210,24 +211,24 @@ func (t *TestMaster) runFile(path string) {
 // Verify checks that the replica state (database) agrees with the local database
 // TODO: Make local database, and when client calls succeed, add to local database.
 func (t *TestMaster) Verify() {
-	t.log.Printf(DEBUG, "Verifying correctness. Data created %v", t.CreatedData)
+	t.Debug(DEBUG, "Verifying correctness. Data created %v", t.CreatedData)
 	num_failures := 0
 
 	cli := t.StartClient(0, 0)
 	for loc, data := range t.CreatedData {
 		res, err := cli.GetData(loc)
 		if err != nil {
-			t.log.Printf(DEBUG, "Get Data of %s failed with %s", loc, err)
+			t.Debug(DEBUG, "Get Data of %s failed with %s", loc, err)
 		}
 		str := res.Value
-		t.log.Printf(DEBUG, "Getting data for %s. Expected %s, got %s", loc, data, str)
+		t.Debug(DEBUG, "Getting data for %s. Expected %s, got %s", loc, data, str)
 		if data != str {
-			t.log.Printf(DEBUG, "FAILED!")
+			t.Debug(DEBUG, "FAILED!")
 			num_failures += 1
 		}
 	}
 
-	t.log.Printf(DEBUG, "Total number of failures: %d", num_failures)	
+	t.Debug(DEBUG, "Total number of failures: %d", num_failures)	
 }
 
 
@@ -256,7 +257,7 @@ func main() {
 	t.wg.Wait()
 	time.Sleep(time.Second)
 	for i, r := range t.Replicas {
-		t.log.Printf(DEBUG, "R:%d, Log: %v", i, r.Phatlog)
+		t.Debug(DEBUG, "R:%d, Log: %v", i, r.Phatlog)
 	}
 	//t.Verify()
 
