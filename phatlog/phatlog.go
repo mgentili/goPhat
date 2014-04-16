@@ -1,6 +1,12 @@
 package phatlog
 
-import ()
+import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/gob"
+	"encoding/hex"
+	"log"
+)
 
 //dummy struct for testing, replace once we get an idea
 //of what this will look like
@@ -39,4 +45,19 @@ func (l *Log) Add(index uint, command interface{}) {
 
 func (l *Log) GetCommand(index uint) interface{} {
 	return l.Commits[index]
+}
+
+func (l *Log) HashLog() string {
+	var logState bytes.Buffer
+	// Encode the log state
+	enc := gob.NewEncoder(&logState)
+	err := enc.Encode(l)
+	if err != nil {
+		log.Fatal("Cannot hash the database state")
+	}
+	// Hash the database state
+	hash := sha256.New()
+	hash.Write(logState.Bytes())
+	md := hash.Sum(nil)
+	return hex.EncodeToString(md)
 }
