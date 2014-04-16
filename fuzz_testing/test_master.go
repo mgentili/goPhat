@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"github.com/mgentili/goPhat/phatclient"
 	"github.com/mgentili/goPhat/level_log"
-	"github.com/mgentili/goPhat/phatRPC"
-	"github.com/mgentili/goPhat/vr"
 	"os"
 	"os/exec"
 	"strconv"
@@ -27,30 +25,36 @@ const (
 	DEBUG = 0
 )
 
+type ClientState struct {
+	client *phatclient.PhatClient
+	NumCreateMessages int
+	requestChan chan string
+	createdData map[string]string
+}
+
 type TestMaster struct {
-	ReplicaProcesses []*vr.Replica
+	ReplicaProcesses []*exec.Cmd
+	Clients     []*ClientState
 	NumAliveReplicas int
 	NumReplicas int
+	NumClients int
 	Server_Locations []string
 	RPC_Locations    []string
 	ReplicaStatus []int
 	log *level_log.Logger
-
-	NumCalls int
-	NumSuccessfulCalls int
-	CreatedData map[string]string
-	ClientLock sync.Mutex
+	wg sync.WaitGroup
 }
 
-// StartNodes starts up n replica nodes
+// StartNodes starts up n replica nodes and connects a number of client to all of them.
 // Later on there should also be a super-client that can inject faults
-func (t *TestMaster) Setup(nr int) {
+func (t *TestMaster) Setup(nr int, nc int) {
 	t.Server_Locations = make([]string, nr)
 	t.RPC_Locations = make([]string, nr)
 	t.ReplicaProcesses = make([]*exec.Cmd, nr)
 	t.ReplicaStatus = make([]int, nr)
 	t.NumReplicas = nr
-	t.CreatedData = make(map[string]string)
+	t.Clients = make([]*ClientState, nc)
+	t.NumClients = nc
 	t.SetupLog()
 
 	t.log.Printf(DEBUG, "Starting %d nodes\n", nr)
@@ -66,51 +70,71 @@ func (t *TestMaster) Setup(nr int) {
 
 	time.Sleep(time.Second)
 	t.NumAliveReplicas = nr
+
+	t.StartClients()
 }
 
-// StartClient finds the first alive replica starting from i and connects a client to it
-func (t *TestMaster) StartClient(i int, uid int) *phatclient.PhatClient {
-	currNode := i
-	for {
-		if t.ReplicaStatus[currNode] == ALIVE {
-			cli, err := phatclient.NewClient(t.RPC_Locations, uint(currNode), fmt.Sprintf("c%d", uid))
-			if err != nil {
-				t.log.Printf(DEBUG, "Unable connect client with request %d to replica %d\n", uid, currNode)
-			}
-			return cli
+func (t *TestMaster) StartClients() {
+	t.wg.Add(t.NumClients)
+
+	var err error
+	for i := 0; i < t.NumClients; i++ {
+		t.Clients[i] = new(ClientState)
+		cli := t.Clients[i]
+		cli.client, err = phatclient.NewClient(t.RPC_Locations, 1, fmt.Sprintf("c%d", i))
+		if err != nil {
+			t.DieClean("Unable to start client")
 		}
-		currNode = (currNode + 1) % t.NumReplicas
-		if currNode == i {
-			t.DieClean("Client unable to connect to any replica")
-		}
+		cli.requestChan = make(chan string, 1000)
+		cli.createdData = make(map[string]string)
+		// each request sent to a specific client will be serialized
+		go t.ProcessClientCalls(i)
 	}
+
+	time.Sleep(time.Second)
 }
 
-// ProcessCreate creates a new client and sends a create request
-func (t *TestMaster) ProcessCreate(uid int) {
-	loc := fmt.Sprintf("/c_%d", uid )
-	data := generateRandomString()
+// ProcessClientCalls serializes requests for one client
+func (t *TestMaster) ProcessClientCalls(client_num int) {
 
-	cli := t.StartClient(0, uid)
-	_ , err := cli.Create(loc, data)
-	if err != nil {
-		t.log.Printf(DEBUG, "Client call failed :-(")
-	} else {
-		t.ClientLock.Lock()
-		t.NumSuccessfulCalls += 1
-		t.CreatedData[loc] = data
-		t.ClientLock.Unlock()
+	defer t.wg.Done()
+
+	for {
+		cli := t.Clients[client_num]
+		r := <-cli.requestChan
+		switch {
+		case r == "CREATE":
+			loc := fmt.Sprintf("/%s_%d",cli.client.Uid,cli.NumCreateMessages)
+			data := generateRandomString()
+			t.log.Printf(DEBUG, "Creating %s", loc)
+			_, err := cli.client.Create(loc, data)
+			cli.NumCreateMessages+=1
+			cli.createdData[loc] = data
+			if err != nil {
+				t.log.Printf(DEBUG, "Client call failed :-(")
+				break
+			}
+		default:
+			return	
+		}
 	}
 }
 
 // StartNode starts a replica connected to all the other replicas
 func (t *TestMaster) StartNode(i int) error {
+	cmd := exec.Command(START_NODE_FILE, "--index", strconv.Itoa(i),
+		"--replica_config", strings.Join(t.Server_Locations, ","),
+		"--rpc_config", strings.Join(t.RPC_Locations, ","))
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 
-	r := vr.RunAsReplica(uint(i), t.Server_Locations, t.RPC_Locations)
-	phatRPC.StartServer(t.RPC_Locations[i], r)
-	
+	err := cmd.Start() //does command in background
+	if err != nil {
+		t.DieClean("Starting node failed")
+		return err
+	}
 	t.ReplicaStatus[i] = ALIVE
-	t.Replicas[i] = r
+	t.ReplicaProcesses[i] = cmd
 
 	return nil
 }
@@ -119,7 +143,6 @@ func (t *TestMaster) SufficientReplicas() bool {
 	return (t.NumAliveReplicas-1)*2 > t.NumReplicas
 }
 
-/*
 // KillNode kills the first node that is alive starting from index i
 func (t *TestMaster) KillNode(i int) {
 	currNode := i
@@ -139,21 +162,6 @@ func (t *TestMaster) KillNode(i int) {
 		currNode = (currNode + 1) % t.NumReplicas
 	}
 	return
-}*/
-
-func (t *TestMaster) FailRep(shutdownRep int) {
-	t.Replicas[shutdownRep].Shutdown()
-	// even though we closed our listener, other replicas may still
-	// have their old connection to us open, so close those too
-	// (unfortunately this seems to be the best way to make this happen)
-	for i := 0; i < t.NumReplicas ; i++ {
-		if i == shutdownRep {
-			continue
-		}
-		if t.ReplicaStatus[i] == ALIVE {
-			t.Replicas[i].DestroyConns(shutdownRep)
-		}
-	}
 }
 
 // StopNode stops the first node that is alive starting from index i
@@ -165,8 +173,10 @@ func (t *TestMaster) StopNode(i int) {
 		}
 		if t.ReplicaStatus[currNode] == ALIVE {
 			t.log.Printf(DEBUG, "Stopping node %d\n", currNode)
-			t.FailRep(currNode)
-
+			err := t.ReplicaProcesses[currNode].Process.Signal(syscall.SIGSTOP)
+			if err != nil {
+				t.DieClean(err)
+			}
 			t.NumAliveReplicas -= 1
 			t.ReplicaStatus[currNode] = STOPPED
 			return
@@ -201,7 +211,8 @@ func (t *TestMaster) ProcessCall(s string) {
 	switch {
 	case command[0] == "startnodes":
 		numnodes, _ := strconv.Atoi(command[1])
-		t.Setup(numnodes)
+		numclients, _ := strconv.Atoi(command[2])
+		t.Setup(numnodes, numclients)
 	case command[0] == "stopnode":
 		node, _ := strconv.Atoi(command[1])
 		t.StopNode(node)
@@ -212,8 +223,7 @@ func (t *TestMaster) ProcessCall(s string) {
 		ms, _ := strconv.Atoi(command[1])
 		time.Sleep(time.Duration(ms) * time.Millisecond)
 	case command[0] == "createfile":
-		go t.ProcessCreate(t.NumCalls)
-		t.NumCalls += 1
+		t.Clients[0].requestChan<-"CREATE"
 	}
 }
 
@@ -231,20 +241,20 @@ func (t *TestMaster) runFile(path string) {
 // Verify checks that the replica state (database) agrees with the local database
 // TODO: Make local database, and when client calls succeed, add to local database.
 func (t *TestMaster) Verify() {
-	t.log.Printf(DEBUG, "Verifying correctness. Data created %v", t.CreatedData)
+	t.log.Printf(DEBUG, "Verifying correctness. Data created %v", t.Clients[0].createdData)
 	num_failures := 0
-
-	cli := t.StartClient(0, 0)
-	for loc, data := range t.CreatedData {
-		res, err := cli.GetData(loc)
-		if err != nil {
-			t.log.Printf(DEBUG, "Get Data of %s failed with %s", loc, err)
-		}
-		str := res.Value
-		t.log.Printf(DEBUG, "Getting data for %s. Expected %s, got %s", loc, data, str)
-		if data != str {
-			t.log.Printf(DEBUG, "FAILED!")
-			num_failures += 1
+	for _, c := range t.Clients {
+		for loc, data := range c.createdData {
+			res, err := c.client.GetData(loc)
+			if err != nil {
+				t.log.Printf(DEBUG, "Get Data of %s failed with %s", loc, err)
+			}
+			str := res.Value
+			t.log.Printf(DEBUG, "Getting data for %s. Expected %s, got %s", loc, data, str)
+			if data != str {
+				t.log.Printf(DEBUG, "FAILED!")
+				num_failures += 1
+			}
 		}
 	}
 
@@ -277,5 +287,7 @@ func main() {
 	case *testtype == "cmf":
 		t.testCascadingMasterFailure()
 	}
+
+	t.closeChannelsAndWait()
 	t.Verify()
 }
