@@ -139,8 +139,10 @@ func (c *PhatClient) processCallWithRetry(args *phatdb.DBCommand) (*phatdb.DBRes
 	giveupTimer := time.NewTimer(DefaultTimeout * 10)
 
 	var replyErr error
-
+	counter := 0
 	for {
+		counter++
+		c.log.Printf(DEBUG, "c%s with command %v, counter: %d\n", c.Uid, args, counter)
 		dbCall := c.RpcClient.Go("Server.RPCDB", args, reply, nil)
 		select {
 		case <-giveupTimer.C:
