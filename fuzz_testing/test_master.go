@@ -3,15 +3,17 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/mgentili/goPhat/phatclient"
 	"github.com/mgentili/goPhat/level_log"
+	"github.com/mgentili/goPhat/phatclient"
+	"github.com/mgentili/goPhat/phatdb"
+	"net/rpc"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
-	"sync"
 )
 
 const (
@@ -19,30 +21,30 @@ const (
 	INIT_SERVER_PORT = 9000
 	INIT_RPC_PORT    = 6000
 	START_NODE_FILE  = "fuzz_testing_exec"
-	ALIVE = 0
-	KILLED = 1
-	STOPPED = 2
-	DEBUG = 0
+	ALIVE            = 0
+	KILLED           = 1
+	STOPPED          = 2
+	DEBUG            = 0
 )
 
 type ClientState struct {
-	client *phatclient.PhatClient
+	client            *phatclient.PhatClient
 	NumCreateMessages int
-	requestChan chan string
-	createdData map[string]string
+	requestChan       chan string
+	createdData       map[string]string
 }
 
 type TestMaster struct {
 	ReplicaProcesses []*exec.Cmd
-	Clients     []*ClientState
+	Clients          []*ClientState
 	NumAliveReplicas int
-	NumReplicas int
-	NumClients int
+	NumReplicas      int
+	NumClients       int
 	Server_Locations []string
 	RPC_Locations    []string
-	ReplicaStatus []int
-	log *level_log.Logger
-	wg sync.WaitGroup
+	ReplicaStatus    []int
+	log              *level_log.Logger
+	wg               sync.WaitGroup
 }
 
 // StartNodes starts up n replica nodes and connects a number of client to all of them.
@@ -104,18 +106,18 @@ func (t *TestMaster) ProcessClientCalls(client_num int) {
 		r := <-cli.requestChan
 		switch {
 		case r == "CREATE":
-			loc := fmt.Sprintf("/%s_%d",cli.client.Uid,cli.NumCreateMessages)
+			loc := fmt.Sprintf("/%s_%d", cli.client.Uid, cli.NumCreateMessages)
 			data := generateRandomString()
 			t.log.Printf(DEBUG, "Creating %s", loc)
 			_, err := cli.client.Create(loc, data)
-			cli.NumCreateMessages+=1
+			cli.NumCreateMessages += 1
 			cli.createdData[loc] = data
 			if err != nil {
 				t.log.Printf(DEBUG, "Client call failed :-(")
 				break
 			}
 		default:
-			return	
+			return
 		}
 	}
 }
@@ -223,7 +225,7 @@ func (t *TestMaster) ProcessCall(s string) {
 		ms, _ := strconv.Atoi(command[1])
 		time.Sleep(time.Duration(ms) * time.Millisecond)
 	case command[0] == "createfile":
-		t.Clients[0].requestChan<-"CREATE"
+		t.Clients[0].requestChan <- "CREATE"
 	}
 }
 
@@ -258,9 +260,41 @@ func (t *TestMaster) Verify() {
 		}
 	}
 
-	t.log.Printf(DEBUG, "Total number of failures: %d", num_failures)	
+	t.log.Printf(DEBUG, "Total number of failures: %d", num_failures)
 }
 
+func (t *TestMaster) EnsureEqualHash() {
+	t.log.Printf(DEBUG, "SHA256: Ensuring all nodes have same DB state.")
+	failures := 0
+
+	expected := ""
+	for i, loc := range t.RPC_Locations {
+		if t.ReplicaStatus[i] == ALIVE {
+			client, _ := rpc.Dial("tcp", loc)
+			args := &phatdb.DBCommand{"SHA256", "", ""}
+			reply := &phatdb.DBResponse{}
+			dbCall := client.Go("Server.RPCDB", args, reply, nil)
+			t.log.Printf(DEBUG, "SHA256: Requesting SHA256 from %v", loc)
+			<-dbCall.Done
+			h := reply.Reply.(string)
+			t.log.Printf(DEBUG, "SHA256: Received %v from %v", h, loc)
+			if expected == "" {
+				expected = h
+			}
+			if expected != h {
+				t.log.Printf(DEBUG, "SHA256! One of the nodes is not at an equivalent state")
+				failures += 1
+			}
+		}
+	}
+	t.log.Printf(DEBUG, "Total number of SHA256 failures: %d", failures)
+	if failures > 0 {
+		//t.DieClean("SHA256! Inconsistent database states!")
+		t.log.Printf(DEBUG, "SHA256! Inconsistent database states!")
+	} else {
+		t.log.Printf(DEBUG, "SHA256: All nodes have equivalent state (h = %v)", expected)
+	}
+}
 
 func main() {
 	path := flag.String("path", "", "File path")
@@ -290,4 +324,6 @@ func main() {
 
 	t.closeChannelsAndWait()
 	t.Verify()
+	time.Sleep(time.Second)
+	t.EnsureEqualHash()
 }

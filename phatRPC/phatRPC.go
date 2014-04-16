@@ -127,7 +127,8 @@ func (s *Server) RPCDB(args *phatdb.DBCommand, reply *phatdb.DBResponse) error {
 	MasterId := s.ReplicaServer.GetMasterId()
 	Id := s.ReplicaServer.Rstate.ReplicaNumber
 	s.debug(DEBUG, "Master id: %d, My id: %d", MasterId, Id)
-	if Id != MasterId {
+	// Temporary workaround to allow responses to SHA256 on non-master nodes
+	if Id != MasterId && args.Command != "SHA256" {
 		s.debug(DEBUG, "I'm not the master!")
 		reply.Error = "Not master node"
 		reply.Reply = MasterId
