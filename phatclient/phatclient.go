@@ -3,25 +3,24 @@ package phatclient
 import (
 	"encoding/gob"
 	"errors"
-	"github.com/mgentili/goPhat/phatdb"
+	"fmt"
 	"github.com/mgentili/goPhat/level_log"
+	"github.com/mgentili/goPhat/phatdb"
 	"net/rpc"
 	"os"
 	"time"
-	"fmt"
 )
 
 const (
 	DefaultTimeout = time.Duration(5) * time.Second
 	ClientTimeout  = time.Duration(3) * time.Second
 	ServerTimeout  = time.Duration(2) * time.Second
-	DEBUG = 0
-	STATUS = 1
-	CALL = 2
+	DEBUG          = 0
+	STATUS         = 1
+	CALL           = 2
 	DEBUG_LOCATION = "debug.txt"
 	TRACK_LOCATION = "track.txt"
 )
-
 
 func (c *PhatClient) StringToError(s string) error {
 	//c.log.Printf(TRACK, "Convert to err:", s)
@@ -33,13 +32,13 @@ func (c *PhatClient) StringToError(s string) error {
 
 type PhatClient struct {
 	Timeout         time.Duration
-	ServerLocations []string    //addresses of all servers
-	NumServers      uint        //length of ServerLocations
-	MasterId        uint        //id of master server
-	Id              uint        //id of currently connected server
-	Uid	string //unique identifier of this client
-	RpcClient       *rpc.Client //client connection to server (usually the master)
-	log *level_log.Logger //individual client's log
+	ServerLocations []string          //addresses of all servers
+	NumServers      uint              //length of ServerLocations
+	MasterId        uint              //id of master server
+	Id              uint              //id of currently connected server
+	Uid             string            //unique identifier of this client
+	RpcClient       *rpc.Client       //client connection to server (usually the master)
+	log             *level_log.Logger //individual client's log
 }
 
 func (c *PhatClient) SetupClientLog() {
@@ -91,13 +90,13 @@ func (c *PhatClient) ConnectToServer(index uint) error {
 	c.Id = index
 	c.RpcClient = client
 	return nil
-	}
+}
 
 // connectToMaster connects client to the current master node
 func (c *PhatClient) ConnectToMaster() error {
 	c.log.Printf(STATUS, "Trying to connect to master %d", c.MasterId)
 	//connect to any server, and get the master id
-	loop:
+loop:
 	for i := uint(0); i < c.NumServers; i = i + 1 {
 		timer := time.NewTimer(time.Second)
 		call := c.RpcClient.Go("Server.GetMaster", new(struct{}), &c.MasterId, nil)
@@ -112,9 +111,9 @@ func (c *PhatClient) ConnectToMaster() error {
 				c.log.Printf(DEBUG, "Errored when asking server %d for master info: %v", c.Id, call.Error)
 			}
 		}
-		
+
 		//if problem with RPC or server is in recovery, need to connect to different server
-		time.Sleep(DefaultTimeout/10)
+		time.Sleep(DefaultTimeout / 10)
 		c.ConnectToServer((c.Id + uint(i+1)) % c.NumServers)
 	}
 
@@ -137,7 +136,7 @@ func (c *PhatClient) ConnectToMaster() error {
 func (c *PhatClient) processCallWithRetry(args *phatdb.DBCommand) (*phatdb.DBResponse, error) {
 	reply := &phatdb.DBResponse{}
 	timer := time.NewTimer(DefaultTimeout)
-	giveupTimer := time.NewTimer(DefaultTimeout*10)
+	giveupTimer := time.NewTimer(DefaultTimeout * 10)
 
 	var replyErr error
 
@@ -239,4 +238,15 @@ func (c *PhatClient) Delete(subpath string) error {
 	args := &phatdb.DBCommand{"DELETE", subpath, ""}
 	_, err := c.processCallWithRetry(args)
 	return err
+}
+
+func (c *PhatClient) GetHash() (string, error) {
+	args := &phatdb.DBCommand{"SHA256", "", ""}
+	reply, err := c.processCallWithRetry(args)
+	if err != nil {
+		return "", err
+	}
+	n := reply.Reply.(string)
+
+	return n, err
 }
