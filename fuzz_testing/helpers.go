@@ -35,8 +35,22 @@ func (t *TestMaster) SetupLog() {
 	t.log = level_log.NewLL(os.Stdout, "TM: ")
 	t.log.SetLevelsToLog(levelsToLog)
 }
+
+// cleanup kills all of the replica processes before exiting
+func (t *TestMaster) cleanup() {
+	t.log.Printf(DEBUG, "Killing nodes in cleanup...\n")
+	for i, proc := range t.ReplicaProcesses {
+		t.log.Printf(DEBUG, "Killing node %d", i)
+		err := proc.Process.Kill()
+		if err != nil {
+			t.log.Printf(DEBUG, "Failed to kill %d", i)
+		}
+	}
+}
+
 // Go doesn't have an atexit
 // https://groups.google.com/d/msg/golang-nuts/qBQ0bK2zvQA/vmOu9uhkYH0J
 func (t *TestMaster) DieClean(v ...interface{}) {
+	t.cleanup()
 	t.log.Fatal(DEBUG, v)
 }

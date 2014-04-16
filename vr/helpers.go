@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/mgentili/goPhat/level_log"
-	"net"
 	"os"
 	"runtime"
 	"time"
@@ -69,18 +68,6 @@ func (r *Replica) Shutdown() {
 	r.Mstate.Timer.Stop()
 	r.Mstate.Reset()
 	r.IsShutdown = true
-}
-
-func (r *Replica) Revive() {
-	ln, err := net.Listen("tcp", r.Config[r.Rstate.ReplicaNumber])
-	if err != nil {
-		r.Debug(ERROR, "Couldn't start a listener: %v", err)
-		return
-	}
-	r.Listener = ln
-	r.Rstate.Timer.Reset(LEASE)
-	r.Mstate.Timer.Reset(LEASE/RENEW_FACTOR)
-	r.IsShutdown = false
 }
 
 // closes connection to the given replica number

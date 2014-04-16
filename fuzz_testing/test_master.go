@@ -7,8 +7,11 @@ import (
 	"github.com/mgentili/goPhat/level_log"
 	"github.com/mgentili/goPhat/phatRPC"
 	"github.com/mgentili/goPhat/vr"
+	"os"
+	"os/exec"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 	"sync"
 )
@@ -25,7 +28,7 @@ const (
 )
 
 type TestMaster struct {
-	Replicas []*vr.Replica
+	ReplicaProcesses []*vr.Replica
 	NumAliveReplicas int
 	NumReplicas int
 	Server_Locations []string
@@ -44,7 +47,7 @@ type TestMaster struct {
 func (t *TestMaster) Setup(nr int) {
 	t.Server_Locations = make([]string, nr)
 	t.RPC_Locations = make([]string, nr)
-	t.Replicas = make([]*vr.Replica, nr)
+	t.ReplicaProcesses = make([]*exec.Cmd, nr)
 	t.ReplicaStatus = make([]int, nr)
 	t.NumReplicas = nr
 	t.CreatedData = make(map[string]string)
@@ -103,7 +106,7 @@ func (t *TestMaster) ProcessCreate(uid int) {
 // StartNode starts a replica connected to all the other replicas
 func (t *TestMaster) StartNode(i int) error {
 
-	r := vr.RunAsReplica(uint(i), t.Server_Locations)
+	r := vr.RunAsReplica(uint(i), t.Server_Locations, t.RPC_Locations)
 	phatRPC.StartServer(t.RPC_Locations[i], r)
 	
 	t.ReplicaStatus[i] = ALIVE
@@ -147,8 +150,9 @@ func (t *TestMaster) FailRep(shutdownRep int) {
 		if i == shutdownRep {
 			continue
 		}
-		t.Replicas[i].DestroyConns(uint(shutdownRep))
-	
+		if t.ReplicaStatus[i] == ALIVE {
+			t.Replicas[i].DestroyConns(shutdownRep)
+		}
 	}
 }
 
@@ -177,7 +181,10 @@ func (t *TestMaster) ResumeNode(i int) {
 	for {
 		if t.ReplicaStatus[currNode] == STOPPED {
 			t.log.Printf(DEBUG, "Resuming node %d\n", currNode)
-			t.Replicas[currNode].Revive()
+			err := t.ReplicaProcesses[currNode].Process.Signal(syscall.SIGCONT)
+			if err != nil {
+				t.DieClean(err)
+			}
 			t.NumAliveReplicas += 1
 			t.ReplicaStatus[currNode] = ALIVE
 			return
@@ -251,6 +258,9 @@ func main() {
 	flag.Parse()
 	t := new(TestMaster)
 
+	// Kill any nodes created before leaving
+	defer t.cleanup()
+
 	switch {
 	case *testtype == "none":
 		if *path != "" {
@@ -268,6 +278,4 @@ func main() {
 		t.testCascadingMasterFailure()
 	}
 	t.Verify()
-
-	time.Sleep(10*time.Second)
 }
