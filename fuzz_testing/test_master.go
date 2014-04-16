@@ -277,7 +277,6 @@ func (t *TestMaster) EnsureEqualHash() {
 			t.log.Printf(DEBUG, "SHA256: Requesting SHA256 from %v", loc)
 			<-dbCall.Done
 			h := reply.Reply.(string)
-			t.log.Printf(DEBUG, "SHA256: Received %v from %v", h, loc)
 			if expected == "" {
 				expected = h
 			}
@@ -289,10 +288,23 @@ func (t *TestMaster) EnsureEqualHash() {
 	}
 	t.log.Printf(DEBUG, "Total number of SHA256 failures: %d", failures)
 	if failures > 0 {
-		//t.DieClean("SHA256! Inconsistent database states!")
-		t.log.Printf(DEBUG, "SHA256! Inconsistent database states!")
+		t.DieClean("SHA256! Inconsistent database states!")
 	} else {
 		t.log.Printf(DEBUG, "SHA256: All nodes have equivalent state (h = %v)", expected)
+	}
+}
+
+func (t *TestMaster) ResumeAll() {
+	for currNode, _ := range t.ReplicaStatus {
+		if t.ReplicaStatus[currNode] == STOPPED {
+			t.log.Printf(DEBUG, "Resuming node %d\n", currNode)
+			err := t.ReplicaProcesses[currNode].Process.Signal(syscall.SIGCONT)
+			if err != nil {
+				t.DieClean(err)
+			}
+			t.NumAliveReplicas += 1
+			t.ReplicaStatus[currNode] = ALIVE
+		}
 	}
 }
 
@@ -322,8 +334,13 @@ func main() {
 		t.testCascadingMasterFailure()
 	}
 
+	// Restart any stopped nodes
+	t.ResumeAll()
 	t.closeChannelsAndWait()
+	// Verify the files on the master
 	t.Verify()
+	// Wait for all nodes to play last second catch-up
 	time.Sleep(time.Second)
+	// Check the database "hash" to ensure all the states are equal
 	t.EnsureEqualHash()
 }
