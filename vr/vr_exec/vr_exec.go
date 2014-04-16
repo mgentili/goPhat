@@ -35,16 +35,13 @@ func RunTest(r *vr.Replica) {
 }
 
 func FailRep(shutdownRep uint, reps []*vr.Replica) {
-	reps[shutdownRep].Shutdown()
-	// even though we closed our listener, other replicas may still
-	// have their old connection to us open, so close those too
-	// (unfortunately this seems to be the best way to make this happen)
-	for i := 0; i < N; i++ {
-		if uint(i) == shutdownRep {
-			continue
-		}
-		reps[i].DestroyConns(shutdownRep)
-	}
+	//	reps[shutdownRep].Shutdown()
+	reps[shutdownRep].Disconnect()
+}
+
+func StartRep(rep uint, reps []*vr.Replica, config []string) {
+	reps[rep] = vr.RunAsReplica(rep, config)
+	RunTest(reps[rep])
 }
 
 func main() {
@@ -56,17 +53,20 @@ func main() {
 	config = []string{"127.0.0.1:9000", "127.0.0.1:9001", "127.0.0.1:9002",
 		"127.0.0.1:9003", "127.0.0.1:9004"}
 	N = len(config)
-	fmt.Printf("Number of servers %d", N)
+	fmt.Printf("Number of servers %d\n", N)
 	if *oneProcP {
 		reps := make([]*vr.Replica, N)
 		for ind := N - 1; ind >= 0; ind-- {
 			fmt.Printf("About to start %d", ind)
-			reps[ind] = vr.RunAsReplica(uint(ind), config)
-			fmt.Printf("Finished %d", ind)
-			RunTest(reps[ind])
+			StartRep(uint(ind), reps, config)
 		}
 		time.Sleep(1000 * time.Millisecond)
-		FailRep(0, reps)
+		fmt.Printf("Disconnecting replica 1\n")
+		FailRep(1, reps)
+		time.Sleep(5000 * time.Millisecond)
+		fmt.Printf("reconnecting replica 1\n")
+		//StartRep(1, reps, config)
+		reps[1].Reconnect()
 	} else {
 		ind := *indP
 		r := vr.RunAsReplica(ind, config)

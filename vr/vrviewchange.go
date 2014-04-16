@@ -153,6 +153,7 @@ func (t *RPCReplica) StartView(args *DoViewChangeArgs, reply *int) error {
 	r.Phatlog = args.Log
 	r.Rstate.OpNumber = args.OpNumber
 	r.Rstate.View = args.View //TODO: Note to self (Marco), this addition is necessary, right?
+	// TODO: this isn't right. We need to actually do the commits not just say we have (should be just a r.doCommit(args.CommitNumber))
 	r.Rstate.CommitNumber = args.CommitNumber
 	r.Rstate.Status = Normal
 	r.Rstate.ExtendLease(time.Now().Add(LEASE))

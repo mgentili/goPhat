@@ -1,6 +1,8 @@
 package vr
 
 import (
+	"bufio"
+	"encoding/gob"
 	"errors"
 	"fmt"
 	"github.com/mgentili/goPhat/phatlog"
@@ -51,7 +53,10 @@ type Replica struct {
 	// ensure each commit only happens once!
 	CommitLock sync.Mutex
 	Listener   net.Listener
-	IsShutdown bool
+	Codecs     []*GobServerCodec
+
+	IsShutdown     bool // completely shutdown
+	IsDisconnected bool // just disconnected from other replicas
 }
 
 type Command interface {
@@ -140,8 +145,8 @@ func (t *RPCReplica) Prepare(args *PrepareArgs, reply *PrepareReply) error {
 		return fmt.Errorf("op numbers out of sync: got %d expected %d", args.OpNumber, r.Rstate.OpNumber+1)
 	}
 
-	r.Rstate.OpNumber++
 	r.addLog(args.Command)
+	r.Rstate.OpNumber++
 
 	// commit the last thing if necessary (this reduces the number of actual
 	// commit messages that need to be sent)
@@ -179,14 +184,17 @@ func (t *RPCReplica) Commit(args *CommitArgs, reply *HeartbeatReply) error {
 }
 
 func (r *Replica) RunVR(command Command) {
+	if r.IsShutdown {
+		return
+	}
 	assert(r.IsMaster())
 
 	assert(r.Rstate.OpNumber >= r.Rstate.CommitNumber)
 
 	r.Mstate.Reset()
 
-	r.Rstate.OpNumber++
 	r.addLog(command)
+	r.Rstate.OpNumber++
 
 	args := PrepareArgs{r.Rstate.View, command, r.Rstate.OpNumber, r.Rstate.CommitNumber}
 	replyConstructor := func() interface{} { return new(PrepareReply) }
@@ -246,7 +254,7 @@ func (r *Replica) sendCommitMsgs() {
 
 func RunAsReplica(i uint, config []string) *Replica {
 	NREPLICAS = uint(len(config))
-	F = NREPLICAS / 2
+	F = (NREPLICAS - 1) / 2
 	r := new(Replica)
 	r.Rstate.ReplicaNumber = i
 	r.Config = config
@@ -274,12 +282,11 @@ func (r *Replica) BecomeMaster() {
 
 func (r *Replica) ReplicaInit() {
 	SetupVRLog()
-	ln, err := net.Listen("tcp", r.Config[r.Rstate.ReplicaNumber])
-	if err != nil {
-		r.Debug(ERROR, "Couldn't start a listener: %v", err)
+	// ReplicaRun will do this too if necessary, but if there's some reason the listener won't work initially
+	// e.g. there's already something running on that port, we catch it here and exit
+	if err := r.ListenerInit(); err != nil {
 		return
 	}
-	r.Listener = ln
 	r.Rstate.Timer = time.AfterFunc(LEASE, r.ReplicaTimeout)
 	// set up master timer even as a replica, so that if we do become master
 	// the timer object already exists
@@ -295,18 +302,33 @@ func (r *Replica) ReplicaRun() {
 	newServer.Register(rpcreplica)
 
 	for {
+		if r.IsDisconnected {
+			break
+		}
+		if r.Listener == nil {
+			err := r.ListenerInit()
+			if err != nil {
+				time.Sleep(500 * time.Millisecond)
+				continue
+			}
+		}
 		conn, err := r.Listener.Accept()
 		if err != nil {
 			r.Debug(ERROR, "err: %v", err)
-			time.Sleep(10000 * time.Millisecond)
+			r.Listener.Close()
+			r.Listener = nil
+			time.Sleep(500 * time.Millisecond)
 			continue
 		}
-		go newServer.ServeConn(conn)
+		buf := bufio.NewWriter(conn)
+		srv := &GobServerCodec{conn, gob.NewDecoder(conn), gob.NewEncoder(buf), buf}
+		r.Codecs = append(r.Codecs, srv)
+		go newServer.ServeCodec(srv)
 	}
 }
 
 func (r *Replica) addLog(command interface{}) {
-	r.Phatlog.Add(r.Rstate.OpNumber, command)
+	r.Phatlog.Add(r.Rstate.OpNumber+1, command)
 	r.Debug(DEBUG, "adding command to log")
 }
 
@@ -340,6 +362,7 @@ func (r *Replica) doCommit(cn uint) {
 		needsUnlock = false
 		return
 	}
+	assert(cn == r.Rstate.CommitNumber+1)
 	r.Debug(STATUS, "commiting %d", r.Rstate.CommitNumber+1)
 	r.Phatlog.GetCommand(r.Rstate.CommitNumber + 1).(Command).CommitFunc(r.Context)
 	r.Rstate.CommitNumber++
@@ -347,6 +370,9 @@ func (r *Replica) doCommit(cn uint) {
 }
 
 func (r *Replica) ClientConnect(repNum uint) (*rpc.Client, error) {
+	if r.IsDisconnected {
+		return nil, errors.New("Disconnected")
+	}
 	assert(repNum != r.Rstate.ReplicaNumber)
 	c, err := rpc.Dial("tcp", r.Config[repNum])
 

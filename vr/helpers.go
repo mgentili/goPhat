@@ -62,12 +62,73 @@ func (mstate *MasterState) Reset() {
 	mstate.Heartbeats = map[uint]time.Time{}
 }
 
-func (r *Replica) Shutdown() {
+// just closes the connections (doesn't stop timers, etc.)
+func (r *Replica) ShutdownIncoming() {
+	// TODO: locking
 	r.Listener.Close()
+	for _, c := range r.Codecs {
+		c.Close()
+	}
+	r.Codecs = []*GobServerCodec{}
+}
+
+func (r *Replica) ShutdownOutgoing() {
+	r.ConnLock.Lock()
+	for _, c := range r.Conns {
+		if c != nil {
+			c.Close()
+		}
+	}
+	r.ConnLock.Unlock()
+}
+
+func (r *Replica) Disconnect() {
+	r.IsDisconnected = true
+	r.ShutdownIncoming()
+	r.ShutdownOutgoing()
+}
+
+func (r *Replica) Reconnect() {
+	assert(r.IsDisconnected)
+	ln, err := net.Listen("tcp", r.Config[r.Rstate.ReplicaNumber])
+	if err != nil {
+		r.Debug(ERROR, "Couldn't start a listener: %v", err)
+		return
+	}
+	r.Listener = ln
+	r.IsDisconnected = false
+	go r.ReplicaRun()
+}
+
+// gets as close as we can to a full replica shutdown. recovery is simply calling RunAsReplica again
+func (r *Replica) Shutdown() {
 	r.Rstate.Timer.Stop()
 	r.Mstate.Timer.Stop()
+	r.Disconnect()
 	r.Mstate.Reset()
 	r.IsShutdown = true
+}
+
+func (r *Replica) ListenerInit() error {
+	ln, err := net.Listen("tcp", r.Config[r.Rstate.ReplicaNumber])
+	if err != nil {
+		r.Debug(ERROR, "Couldn't start a listener: %v", err)
+		return err
+	}
+	r.Listener = ln
+	return nil
+}
+
+func (r *Replica) Revive() {
+	ln, err := net.Listen("tcp", r.Config[r.Rstate.ReplicaNumber])
+	if err != nil {
+		r.Debug(ERROR, "Couldn't start a listener: %v", err)
+		return
+	}
+	r.Listener = ln
+	r.Rstate.Timer.Reset(LEASE)
+	r.Mstate.Timer.Reset(LEASE / RENEW_FACTOR)
+	r.IsShutdown = false
 }
 
 // closes connection to the given replica number

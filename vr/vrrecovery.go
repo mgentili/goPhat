@@ -101,9 +101,10 @@ func (r *Replica) handleRecoveryResponse(reply *RecoveryResponse) bool {
 	//We have recived enough Recovery messages and have recieved from master
 	if r.Rcvstate.RecoveryResponses >= F+1 && ((1<<masterId)&r.Rcvstate.RecoveryResponseReplies) != 0 {
 		r.Rstate.View = r.Rcvstate.RecoveryResponseMsgs[masterId].View
-		r.Rstate.CommitNumber = r.Rcvstate.RecoveryResponseMsgs[masterId].CommitNumber
-		r.Rstate.OpNumber = r.Rcvstate.RecoveryResponseMsgs[masterId].OpNumber
 		r.Phatlog = r.Rcvstate.RecoveryResponseMsgs[masterId].Log
+		r.Rstate.OpNumber = r.Rcvstate.RecoveryResponseMsgs[masterId].OpNumber
+		// TODO: I don't think this is really right. We need to actually commit these things, not just say we have
+		r.Rstate.CommitNumber = r.Rcvstate.RecoveryResponseMsgs[masterId].CommitNumber
 		r.Rstate.Status = Normal
 		r.resetRcvstate()
 		r.Debug(STATUS, "Done with Recovery!")
