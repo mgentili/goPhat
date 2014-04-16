@@ -153,8 +153,8 @@ func (t *RPCReplica) StartView(args *DoViewChangeArgs, reply *int) error {
 	r.Phatlog = args.Log
 	r.Rstate.OpNumber = args.OpNumber
 	r.Rstate.View = args.View //TODO: Note to self (Marco), this addition is necessary, right?
-	// TODO: this isn't right. We need to actually do the commits not just say we have (should be just a r.doCommit(args.CommitNumber))
-	r.Rstate.CommitNumber = args.CommitNumber
+	r.doCommit(args.CommitNumber)
+	assert(r.Rstate.CommitNumber == args.CommitNumber)
 	r.Rstate.Status = Normal
 	r.Rstate.ExtendLease(time.Now().Add(LEASE))
 
@@ -187,7 +187,8 @@ func (r *Replica) calcMasterView() {
 	}
 
 	r.Rstate.View = maxView
-	r.Rstate.CommitNumber = maxCommit
+	r.doCommit(maxCommit)
+	assert(r.Rstate.CommitNumber == maxCommit)
 	// empty log appears to get sent over RPC as nil, so turn a nil log into an empty log here
 	if bestRep.Log == nil {
 		bestRep.Log = phatlog.EmptyLog()

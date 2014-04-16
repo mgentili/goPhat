@@ -103,8 +103,8 @@ func (r *Replica) handleRecoveryResponse(reply *RecoveryResponse) bool {
 		r.Rstate.View = r.Rcvstate.RecoveryResponseMsgs[masterId].View
 		r.Phatlog = r.Rcvstate.RecoveryResponseMsgs[masterId].Log
 		r.Rstate.OpNumber = r.Rcvstate.RecoveryResponseMsgs[masterId].OpNumber
-		// TODO: I don't think this is really right. We need to actually commit these things, not just say we have
-		r.Rstate.CommitNumber = r.Rcvstate.RecoveryResponseMsgs[masterId].CommitNumber
+		r.doCommit(r.Rcvstate.RecoveryResponseMsgs[masterId].CommitNumber)
+		assert(r.Rstate.CommitNumber == r.Rcvstate.RecoveryResponseMsgs[masterId].CommitNumber)
 		r.Rstate.Status = Normal
 		r.resetRcvstate()
 		r.Debug(STATUS, "Done with Recovery!")
