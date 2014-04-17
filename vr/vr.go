@@ -59,8 +59,17 @@ type Replica struct {
 	IsDisconnected bool // just disconnected from other replicas
 }
 
+// abstract command interface which a user-specified command should implement
+// CommitFunc is passed Replica.Context as its argument
 type Command interface {
 	CommitFunc(interface{})
+}
+
+// actual command struct which we pass around through VR
+// just adds a channel so we can signal RunVR that a command is committed
+type VRCommand struct {
+	C    Command
+	Done chan int
 }
 
 /* special object just for RPC calls, so that other methods
@@ -189,22 +198,38 @@ func (r *Replica) RunVR(command Command) {
 	}
 	assert(r.IsMaster())
 
-	assert(r.Rstate.OpNumber >= r.Rstate.CommitNumber)
-
+	// TODO: it'd probably be better to just keep a map from replica id to latest ack'd op number (a la raft)
 	r.Mstate.Reset()
 
-	r.addLog(command)
+	vrCommand := VRCommand{command, make(chan int)}
+
+	r.addLog(vrCommand)
 	r.Rstate.OpNumber++
 
-	args := PrepareArgs{r.Rstate.View, command, r.Rstate.OpNumber, r.Rstate.CommitNumber}
+	r.Debug(STATUS, "I'm master, RunVR'ing %d", r.Rstate.OpNumber)
+
+	args := PrepareArgs{r.Rstate.View, vrCommand, r.Rstate.OpNumber, r.Rstate.CommitNumber}
 	replyConstructor := func() interface{} { return new(PrepareReply) }
-	r.sendAndRecv(NREPLICAS-1, "RPCReplica.Prepare", args, replyConstructor, func(reply interface{}) bool {
+	go r.sendAndRecv(NREPLICAS-1, "RPCReplica.Prepare", args, replyConstructor, func(reply interface{}) bool {
 		return r.handlePrepareOK(reply.(*PrepareReply))
 	})
+	<-vrCommand.Done
+	r.Debug(DEBUG, "Finished RunVR")
 }
 
 func (r *Replica) handlePrepareOK(reply *PrepareReply) bool {
 	r.Debug(DEBUG, "got response: %+v\n", reply)
+
+	// no longer master, we don't care about this prepare anymore
+	if !r.IsMaster() {
+		return true
+	}
+
+	if reply.OpNumber <= r.Rstate.CommitNumber {
+		r.Debug(STATUS, "Got reply for op %d, which we've already committed")
+		return true
+	}
+
 	if reply.View != r.Rstate.View {
 		return false
 	}
@@ -282,6 +307,7 @@ func (r *Replica) BecomeMaster() {
 
 func (r *Replica) ReplicaInit() {
 	SetupVRLog()
+	gob.Register(VRCommand{})
 	// ReplicaRun will do this too if necessary, but if there's some reason the listener won't work initially
 	// e.g. there's already something running on that port, we catch it here and exit
 	if err := r.ListenerInit(); err != nil {
@@ -364,9 +390,13 @@ func (r *Replica) doCommit(cn uint) {
 	}
 	assert(cn == r.Rstate.CommitNumber+1)
 	r.Debug(STATUS, "commiting %d", r.Rstate.CommitNumber+1)
-	r.Phatlog.GetCommand(r.Rstate.CommitNumber + 1).(Command).CommitFunc(r.Context)
+	vrCommand := r.Phatlog.GetCommand(r.Rstate.CommitNumber + 1).(VRCommand)
+	vrCommand.C.CommitFunc(r.Context)
 	r.Rstate.CommitNumber++
 	r.Debug(DEBUG, "committed: %d", r.Rstate.CommitNumber)
+	if vrCommand.Done != nil {
+		vrCommand.Done <- 0
+	}
 }
 
 func (r *Replica) ClientConnect(repNum uint) (*rpc.Client, error) {
