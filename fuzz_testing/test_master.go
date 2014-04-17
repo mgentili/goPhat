@@ -231,6 +231,21 @@ func (t *TestMaster) Verify() {
 	t.Debug(DEBUG, "Total number of failures: %d", num_failures)	
 }
 
+/*
+func (t *TestMaster) ResumeAll() {
+	for currNode, _ := range t.ReplicaStatus {
+		if t.ReplicaStatus[currNode] == STOPPED {
+			t.log.Printf(DEBUG, "Resuming node %d\n", currNode)
+			err := t.ReplicaProcesses[currNode].Process.Signal(syscall.SIGCONT)
+			if err != nil {
+				t.DieClean(err)
+			}
+			t.NumAliveReplicas += 1
+			t.ReplicaStatus[currNode] = ALIVE
+		}
+	}
+}
+*/
 
 func main() {
 	path := flag.String("path", "", "File path")

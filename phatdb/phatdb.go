@@ -1,11 +1,7 @@
 package phatdb
 
 import (
-	"bytes"
-	"crypto/sha256"
-	"encoding/gob"
-	"encoding/hex"
-	"log"
+	"fmt"
 	"os"
 	"strings"
 )
@@ -20,15 +16,27 @@ type StatNode struct {
 	NumChildren uint64 // Number of children
 }
 
+func (s *StatNode) GoString() string {
+	return fmt.Sprintf("<SN V=%d CV=%d NC=%d>", s.Version, s.CVersion, s.NumChildren)
+}
+
 type DataNode struct {
 	Value string
 	Stats *StatNode
+}
+
+func (d *DataNode) GoString() string {
+	return fmt.Sprintf("<DN V=%#v Stats=%#v>", d.Value, d.Stats)
 }
 
 type FileNode struct {
 	//Parent   *FileNode
 	Children map[string]*FileNode
 	Data     *DataNode
+}
+
+func (f *FileNode) GoString() string {
+	return fmt.Sprintf("<FN Children=%#v Data=%#v>", f.Children, f.Data)
 }
 
 func GetNodePath(path string) []string {
@@ -127,16 +135,5 @@ func _setNode(n *FileNode, val string) {
 }
 
 func hashNode(root *FileNode) string {
-	var dbState bytes.Buffer
-	// Encode the database state
-	enc := gob.NewEncoder(&dbState)
-	err := enc.Encode(root)
-	if err != nil {
-		log.Fatal("Cannot hash the database state")
-	}
-	// Hash the database state
-	hash := sha256.New()
-	hash.Write(dbState.Bytes())
-	md := hash.Sum(nil)
-	return hex.EncodeToString(md)
+	return fmt.Sprintf("%#v", root)
 }

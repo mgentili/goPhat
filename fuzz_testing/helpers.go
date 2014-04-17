@@ -2,9 +2,9 @@ package main
 
 import (
 	"bufio"
-	"os"
 	"github.com/mgentili/goPhat/level_log"
 	"math/rand"
+	"os"
 	"strconv"
 )
 
