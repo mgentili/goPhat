@@ -2,6 +2,10 @@ package main
 
 import (
 	"bufio"
+	"bytes"
+	"crypto/sha256"
+	"encoding/gob"
+	"encoding/hex"
 	"github.com/mgentili/goPhat/level_log"
 	"math/rand"
 	"os"
@@ -10,6 +14,22 @@ import (
 
 func (t *TestMaster) Debug(level int, format string, args ...interface{}) {
 	t.log.Printf(level, format, args...)
+}
+
+func (t *TestMaster) Hash(stuff interface{}) string {
+	var state bytes.Buffer
+
+	// Encode the log state
+	enc := gob.NewEncoder(&state)
+	err := enc.Encode(stuff)
+	if err != nil {
+		t.Debug(DEBUG, "Cannot hash it!")
+	}
+	// Hash the database state
+	hash := sha256.New()
+	hash.Write(state.Bytes())
+	md := hash.Sum(nil)
+	return hex.EncodeToString(md)
 }
 
 // readLines reads a whole file into memory

@@ -31,7 +31,6 @@ func (c *PhatClient) StringToError(s string) error {
 }
 
 type PhatClient struct {
-	Timeout         time.Duration
 	ServerLocations []string          //addresses of all servers
 	NumServers      uint              //length of ServerLocations
 	MasterId        uint              //id of master server
@@ -66,8 +65,8 @@ func NewClient(servers []string, id uint, uid string) (*PhatClient, error) {
 	c.Id = id
 	c.MasterId = 0
 	c.Uid = uid
-	c.Timeout = DefaultTimeout
 	c.SetupClientLog()
+
 	err := c.ConnectToServer(id)
 	if err != nil {
 		c.Debug(DEBUG, "NewClient failed to connect client to server with id %d, error %s", id, err.Error())
@@ -83,7 +82,7 @@ func NewClient(servers []string, id uint, uid string) (*PhatClient, error) {
 	return c, nil
 }
 
-// connectToAnyServer connects client to server with given index
+// connectToServer connects client to server with given index
 func (c *PhatClient) ConnectToServer(index uint) error {
 	c.Debug(STATUS, "Trying to connect to server %d", index)
 	client, err := rpc.Dial("tcp", c.ServerLocations[index])
@@ -149,7 +148,7 @@ func (c *PhatClient) processCallWithRetry(args *phatdb.DBCommand) (*phatdb.DBRes
 		dbCall := c.RpcClient.Go("Server.RPCDB", args, reply, nil)
 		select {
 		case <-giveupTimer.C:
-			c.log.Fatal(DEBUG, "Client completely giving up on this call")
+			c.Debug(DEBUG, "Client completely giving up on this call")
 			return nil, errors.New("Completely timed out")
 		case <-timer.C:
 			c.Debug(DEBUG, "Single call timed out")

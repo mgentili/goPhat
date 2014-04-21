@@ -4,9 +4,11 @@ import (
 	"flag"
 	"fmt"
 	"github.com/mgentili/goPhat/phatclient"
+	"github.com/mgentili/goPhat/phatdb"
 	"github.com/mgentili/goPhat/level_log"
 	"github.com/mgentili/goPhat/phatRPC"
 	"github.com/mgentili/goPhat/vr"
+	"encoding/gob"
 	"strconv"
 	"strings"
 	"time"
@@ -62,16 +64,15 @@ func (t *TestMaster) Setup(nr int) {
 		t.StartNode(i)
 	}
 
-	time.Sleep(time.Second)
 	t.NumAliveReplicas = nr
 }
 
 // StartClient finds the first alive replica starting from i and connects a client to it
-func (t *TestMaster) StartClient(i int, uid int) *phatclient.PhatClient {
+func (t *TestMaster) StartClient(i int, uid string) *phatclient.PhatClient {
 	currNode := i
 	for {
 		if t.ReplicaStatus[currNode] == ALIVE {
-			cli, err := phatclient.NewClient(t.RPC_Locations, uint(currNode), fmt.Sprintf("c%d", uid))
+			cli, err := phatclient.NewClient(t.RPC_Locations, uint(currNode), fmt.Sprintf("c%s", uid))
 			if err != nil {
 				t.Debug(DEBUG, "Unable connect client with request %d to replica %d\n", uid, currNode)
 			}
@@ -85,14 +86,14 @@ func (t *TestMaster) StartClient(i int, uid int) *phatclient.PhatClient {
 }
 
 // ProcessCreate creates a new client and sends a create request
-func (t *TestMaster) ProcessCreate(uid int) {
-	loc := fmt.Sprintf("/c_%d", uid )
+func (t *TestMaster) ProcessCreate(uid string) {
+	loc := fmt.Sprintf("/c_%s", uid )
 	data := generateRandomString()
 
 	cli := t.StartClient(0, uid)
 	_ , err := cli.Create(loc, data)
 	if err != nil {
-		t.Debug(DEBUG, "Client call failed :-(")
+		t.Debug(DEBUG, "Client call failed with error: %v", err)
 	} else {
 		t.ClientLock.Lock()
 		t.NumSuccessfulCalls += 1
@@ -113,6 +114,8 @@ func (t *TestMaster) StartNode(i int) error {
 	return nil
 }
 
+// SufficientReplicas returns true if there will be more than a quorum of replicas alive
+// after killing one
 func (t *TestMaster) SufficientReplicas() bool {
 	return (t.NumAliveReplicas-1)*2 > t.NumReplicas
 }
@@ -165,7 +168,7 @@ func (t *TestMaster) ResumeNode(i int) {
 			return
 		}
 		currNode = (currNode + 1) % t.NumReplicas
-		if currNode == i {
+		if currNode == i { // no nodes were stopped, so can't resume any
 			return
 		}
 	}
@@ -190,7 +193,7 @@ func (t *TestMaster) ProcessCall(s string) {
 		t.wg.Add(1)
 		uid := t.NumCalls
 		go func() {
-			t.ProcessCreate(uid)
+			t.ProcessCreate(strconv.Itoa(uid))
 			t.wg.Done()
 		}()
 		t.NumCalls += 1
@@ -210,11 +213,11 @@ func (t *TestMaster) runFile(path string) {
 
 // Verify checks that the replica state (database) agrees with the local database
 // TODO: Make local database, and when client calls succeed, add to local database.
-func (t *TestMaster) Verify() {
+func (t *TestMaster) VerifyDB() {
 	t.Debug(DEBUG, "Verifying correctness. Data created %v", t.CreatedData)
 	num_failures := 0
 
-	cli := t.StartClient(0, 0)
+	cli := t.StartClient(0, "tester")
 	for loc, data := range t.CreatedData {
 		res, err := cli.GetData(loc)
 		if err != nil {
@@ -224,28 +227,55 @@ func (t *TestMaster) Verify() {
 		t.Debug(DEBUG, "Getting data for %s. Expected %s, got %s", loc, data, str)
 		if data != str {
 			t.Debug(DEBUG, "FAILED!")
-			num_failures += 1
+			num_failures++
 		}
 	}
 
 	t.Debug(DEBUG, "Total number of failures: %d", num_failures)	
 }
 
-/*
-func (t *TestMaster) ResumeAll() {
-	for currNode, _ := range t.ReplicaStatus {
-		if t.ReplicaStatus[currNode] == STOPPED {
-			t.log.Printf(DEBUG, "Resuming node %d\n", currNode)
-			err := t.ReplicaProcesses[currNode].Process.Signal(syscall.SIGCONT)
-			if err != nil {
-				t.DieClean(err)
+
+
+func (t *TestMaster) VerifyLog() {
+
+	//returns just the DBCommand stored in the log, which includes the Command (e.g. CREATE),
+	// the Path (e.g. "\dev\"), and the Value (e.g. "hello world!")
+	mapfunc := func(c interface{}) interface{} {
+		return c.(vr.VRCommand).C.(phatRPC.CommandFunctor).Command.Cmd
+	}
+
+	var hash string
+	num_failures := 0
+
+	for i, r := range t.Replicas {
+		ops, commands := r.Phatlog.Map(mapfunc)
+		h := t.Hash(commands)
+		t.Debug(DEBUG, "R:%d, Log: %v, %s", i, ops, commands)
+		t.Debug(DEBUG, "Hash: %s", t.Hash(commands))
+		if i == 0 {
+			hash = h
+		} else {
+			if hash != h {
+				t.Debug(DEBUG, "Hash of log for replica %d disagrees! %s", i, h)
+				num_failures++
 			}
+		}
+	}
+	t.Debug(DEBUG, "Number of log disagreements: %d", num_failures)
+
+}
+
+func (t *TestMaster) ResumeAll() {
+	for currNode, _ := range t.Replicas {
+		if t.ReplicaStatus[currNode] == STOPPED {
+			t.Debug(DEBUG, "Resuming node %d\n", currNode)
+			t.Replicas[currNode].Reconnect()
 			t.NumAliveReplicas += 1
 			t.ReplicaStatus[currNode] = ALIVE
+			return
 		}
 	}
 }
-*/
 
 func main() {
 	path := flag.String("path", "", "File path")
@@ -270,11 +300,14 @@ func main() {
 		t.testCascadingMasterFailure()
 	}
 	t.wg.Wait()
+	t.Debug(DEBUG, "All clients finished, for better or worse")
 	time.Sleep(time.Second)
-	for i, r := range t.Replicas {
-		t.Debug(DEBUG, "R:%d, Log: %v", i, r.Phatlog)
-	}
-	//t.Verify()
+
+	// for hashing the log
+	gob.Register(phatdb.DBCommand{})
+
+	t.VerifyLog()
+	//t.VerifyDB()
 
 	
 }

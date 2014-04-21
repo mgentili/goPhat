@@ -6,12 +6,13 @@ import (
 	"encoding/gob"
 	"encoding/hex"
 	"log"
+	"sort"
 )
 
 //dummy struct for testing, replace once we get an idea
 //of what this will look like
 type Command struct {
-	name string //just a dummy val to test
+	Name string //just a dummy val to test
 }
 
 //is map the best choice here?
@@ -45,6 +46,29 @@ func (l *Log) Add(index uint, command interface{}) {
 
 func (l *Log) GetCommand(index uint) interface{} {
 	return l.Commits[index]
+}
+
+// returns a sorted array of the 
+func (l *Log) sort() []int {
+	var keys []int
+	for k := range l.Commits {
+		keys = append(keys, int(k))
+	}
+	sort.Ints(keys)
+	return keys
+}
+
+func (l *Log) Map(mapfunc func(command interface{}) interface{}) ([]int, []interface{}){
+	ordered_keys := l.sort()
+	//log.Printf("Sorted keys %v", ordered_keys)
+	answers := make([]interface{}, 0)
+	for _, i := range ordered_keys {
+		val := l.Commits[uint(i)]
+		//log.Printf("Value for index %d is %v", i, val)
+		answers = append(answers, mapfunc(val))
+	}
+
+	return ordered_keys, answers
 }
 
 func (l *Log) HashLog() string {
