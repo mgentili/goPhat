@@ -139,16 +139,18 @@ func (t *RPCReplica) DoViewChange(args *DoViewChangeArgs, reply *int) error {
 		//send the StartView messages to all replicas
 		SVargs := StartViewArgs{r.Rstate.View, r.Phatlog, r.Rstate.OpNumber, r.Rstate.CommitNumber}
 		go r.sendAndRecv(NREPLICAS-1, "RPCReplica.StartView", SVargs,
-			func() interface{} { return nil },
-			func(r interface{}) bool { return false })
+			func() interface{} { return new(PrepareReply) },
+			func(reply interface{}) bool { return r.handlePrepareOK(reply.(*PrepareReply)) })
 
 	}
 	return nil
 }
 
-func (t *RPCReplica) StartView(args *DoViewChangeArgs, reply *int) error {
+func (t *RPCReplica) StartView(args *DoViewChangeArgs, reply *PrepareReply) error {
 	r := t.R
 	r.Debug(STATUS, "StartView")
+
+	// TODO: what if we get a StartView for an older view? (VR paper doesn't really mention this case)
 
 	r.Phatlog = args.Log
 	r.Rstate.OpNumber = args.OpNumber
@@ -160,6 +162,10 @@ func (t *RPCReplica) StartView(args *DoViewChangeArgs, reply *int) error {
 
 	r.resetVcstate()
 	r.Debug(STATUS, "ViewChangeComplete!")
+
+	// treat response like PrepareReply, so we can commit uncommitted operations, renew heartbeats, etc.
+	*reply = PrepareReply{r.Rstate.View, r.Rstate.OpNumber, r.Rstate.ReplicaNumber, time.Now().Add(LEASE)}
+	r.Rstate.ExtendLease(reply.Lease)
 
 	return nil
 }
