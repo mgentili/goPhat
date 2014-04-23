@@ -161,11 +161,7 @@ func (t *RPCReplica) Prepare(args *PrepareArgs, reply *PrepareReply) error {
 	// commit messages that need to be sent)
 	r.doCommit(args.CommitNumber)
 
-	reply.View = r.Rstate.View
-	reply.OpNumber = r.Rstate.OpNumber
-
-	reply.Lease = time.Now().Add(LEASE)
-	reply.ReplicaNumber = r.Rstate.ReplicaNumber
+	*reply = PrepareReply{r.Rstate.View, r.Rstate.OpNumber, r.Rstate.ReplicaNumber, time.Now().Add(LEASE)}
 	r.Rstate.ExtendLease(reply.Lease)
 
 	return nil
@@ -226,7 +222,7 @@ func (r *Replica) handlePrepareOK(reply *PrepareReply) bool {
 	}
 
 	if reply.OpNumber <= r.Rstate.CommitNumber {
-		r.Debug(STATUS, "Got reply for op %d, which we've already committed")
+		r.Debug(STATUS, "Got reply for op %d, which we've already committed", reply.OpNumber)
 		return true
 	}
 
