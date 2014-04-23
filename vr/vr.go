@@ -150,7 +150,8 @@ func (t *RPCReplica) Prepare(args *PrepareArgs, reply *PrepareReply) error {
 	}
 	if args.OpNumber > r.Rstate.OpNumber+1 {
 		// we must be behind?
-		r.PrepareRecovery()
+		//r.PrepareRecovery()
+		r.StartStateTransfer()
 		return fmt.Errorf("op numbers out of sync: got %d expected %d", args.OpNumber, r.Rstate.OpNumber+1)
 	}
 
