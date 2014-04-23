@@ -268,11 +268,10 @@ func (t *TestMaster) VerifyLog() {
 func (t *TestMaster) ResumeAll() {
 	for currNode, _ := range t.Replicas {
 		if t.ReplicaStatus[currNode] == STOPPED {
-			t.Debug(DEBUG, "Resuming node %d\n", currNode)
+			t.Debug(DEBUG, "Resuming node %d in ResumeAll\n", currNode)
 			t.Replicas[currNode].Reconnect()
 			t.NumAliveReplicas += 1
 			t.ReplicaStatus[currNode] = ALIVE
-			return
 		}
 	}
 }
@@ -301,7 +300,8 @@ func main() {
 	}
 	t.wg.Wait()
 	t.Debug(DEBUG, "All clients finished, for better or worse")
-	time.Sleep(time.Second)
+	t.ResumeAll()
+	time.Sleep(10*time.Second)
 
 	// for hashing the log
 	gob.Register(phatdb.DBCommand{})
