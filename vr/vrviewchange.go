@@ -187,12 +187,12 @@ func (r *Replica) calcMasterView() {
 	}
 
 	r.Rstate.View = maxView
-	r.doCommit(maxCommit)
-	assert(r.Rstate.CommitNumber == maxCommit)
 	// empty log appears to get sent over RPC as nil, so turn a nil log into an empty log here
 	if bestRep.Log == nil {
 		bestRep.Log = phatlog.EmptyLog()
 	}
 	r.Phatlog = bestRep.Log
 	r.Rstate.OpNumber = bestRep.OpNumber
+	r.doCommit(maxCommit)
+	assert(r.Rstate.CommitNumber == maxCommit)
 }
