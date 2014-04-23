@@ -153,6 +153,7 @@ func (c *PhatClient) processCallWithRetry(args *phatdb.DBCommand) (*phatdb.DBRes
 		case <-timer.C:
 			c.Debug(DEBUG, "Single call timed out")
 			c.ConnectToMaster()
+			timer.Reset(DefaultTimeout)
 		case <-dbCall.Done:
 			if dbCall.Error == nil {
 				c.Debug(STATUS, "Call done with no error")
