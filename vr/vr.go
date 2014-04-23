@@ -285,8 +285,10 @@ func RunAsReplica(i uint, config []string) *Replica {
 
 	go r.ReplicaRun()
 
+	r.PrepareRecovery()
+	
 	// start in view change mode, so we can figure out who will be the master
-	r.PrepareViewChange()
+	//r.PrepareViewChange()
 
 	return r
 }
