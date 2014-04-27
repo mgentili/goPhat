@@ -106,7 +106,7 @@ func (t *TestMaster) ProcessClientCalls(client_num int) {
 		r := <-cli.requestChan
 		switch {
 		case r == "CREATE":
-			loc := fmt.Sprintf("/%s_%d", cli.client.Uid, cli.NumCreateMessages)
+			loc := fmt.Sprintf("/%s_%d", cli.client.Cli.Uid, cli.NumCreateMessages)
 			data := generateRandomString()
 			t.log.Printf(DEBUG, "Creating %s", loc)
 			_, err := cli.client.Create(loc, data)
