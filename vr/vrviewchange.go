@@ -60,7 +60,7 @@ func (t *RPCReplica) StartViewChange(args *StartViewChangeArgs, reply *int) erro
 	r := t.R
 
 	//This view is already ahead of the proposed one
-	if r.Rstate.View > args.View || r.Rstate.View == args.View && r.Rstate.Status != ViewChange {
+	if r.Rstate.View > args.View || (r.Rstate.View == args.View && r.Rstate.Status != ViewChange) {
 		return nil
 	}
 

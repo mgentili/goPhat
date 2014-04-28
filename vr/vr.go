@@ -286,8 +286,10 @@ func RunAsReplica(i uint, config []string) *Replica {
 
 	go r.ReplicaRun()
 
+	// start in recovery, in case we're being restarted from a previous run.
+	// if this is indeed the first run, we'll next go to view change mode to decide a master
 	r.PrepareRecovery()
-	
+
 	// start in view change mode, so we can figure out who will be the master
 	//r.PrepareViewChange()
 

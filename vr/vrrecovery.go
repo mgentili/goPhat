@@ -8,7 +8,7 @@ import (
 type RecoveryState struct {
 	RecoveryResponseMsgs    []RecoveryResponse
 	RecoveryResponseReplies uint64
-	EmptyLogs uint
+	EmptyLogs               uint
 	RecoveryResponses       uint
 	Nonce                   uint
 }
@@ -25,7 +25,7 @@ type RecoveryResponse struct {
 	OpNumber      uint
 	CommitNumber  uint
 	ReplicaNumber uint
-	Normal bool
+	Normal        bool
 }
 
 func (r *Replica) resetRcvstate() {
@@ -64,12 +64,11 @@ func (t *RPCReplica) Recovery(args *RecoveryArgs, reply *RecoveryResponse) error
 
 	r.Debug(STATUS, "Got Recovery RPC")
 
-
 	*reply = RecoveryResponse{r.Rstate.View, args.Nonce, r.Phatlog, r.Rstate.OpNumber,
-			 r.Rstate.CommitNumber, r.Rstate.ReplicaNumber, r.Rstate.Status == Normal}
+		r.Rstate.CommitNumber, r.Rstate.ReplicaNumber, r.Rstate.Status == Normal}
 
 	//TODO:only send log and everything else if master
-	
+
 	return nil
 }
 
@@ -93,7 +92,7 @@ func (r *Replica) handleRecoveryResponse(reply *RecoveryResponse) bool {
 
 	if reply.Log.MaxIndex == 0 {
 		r.Rcvstate.EmptyLogs++
-	} 
+	}
 
 	r.Rcvstate.RecoveryResponseMsgs[reply.ReplicaNumber] = *reply
 
@@ -109,7 +108,7 @@ func (r *Replica) handleRecoveryResponse(reply *RecoveryResponse) bool {
 
 	// if majority of replicas respond with empty logs, then we've just started
 	// so we go into view change
-	if r.Rcvstate.EmptyLogs >= F+1  {
+	if r.Rcvstate.EmptyLogs >= F+1 {
 		r.PrepareViewChange()
 		ret = true
 		r.Debug(STATUS, "Received quorum of empty logs, going to Normal")
@@ -122,7 +121,7 @@ func (r *Replica) handleRecoveryResponse(reply *RecoveryResponse) bool {
 		r.doCommit(r.Rcvstate.RecoveryResponseMsgs[masterId].CommitNumber)
 		assert(r.Rstate.CommitNumber == r.Rcvstate.RecoveryResponseMsgs[masterId].CommitNumber)
 		r.Rstate.Status = Normal
-		ret= true
+		ret = true
 		r.Debug(STATUS, "Done with Recovery!")
 	}
 
