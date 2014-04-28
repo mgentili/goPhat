@@ -17,13 +17,19 @@ const (
 	CALL           = 2
 )
 
-
 type PhatClient struct {
 	Cli *client.Client
 }
 
 func (c *PhatClient) debug(level int, format string, args ...interface{}) {
 	c.Cli.Log.Printf(level, format, args...)
+}
+
+func StringToError(s string) error {
+	if s == "" {
+		return nil
+	}
+	return errors.New(s)
 }
 
 // NewClient creates a new client connected to the server with given id
@@ -39,6 +45,7 @@ func NewClient(servers []string, id uint, uid string) (*PhatClient, error) {
 	// We need to register the DataNode and StatNode before we can use them in gob
 	gob.Register(phatdb.DataNode{})
 	gob.Register(phatdb.StatNode{})
+	gob.Register(phatdb.DBResponse{})
 
 	return c, nil
 }
@@ -65,7 +72,7 @@ func (c *PhatClient) processCallWithRetry(args *phatdb.DBCommand) (*phatdb.DBRes
 		case <-dbCall.Done:
 			if dbCall.Error == nil {
 				c.debug(STATUS, "Call done with no error")
-				replyErr = c.Cli.StringToError(reply.Error)
+				replyErr = StringToError(reply.Error)
 				if replyErr != nil {
 					return nil, replyErr
 				}
@@ -82,10 +89,16 @@ func (c *PhatClient) processCallWithRetry(args *phatdb.DBCommand) (*phatdb.DBRes
 func (c *PhatClient) Create(subpath string, initialdata string) (*phatdb.DataNode, error) {
 	c.debug(STATUS, "Creating file %s with data %s", subpath, initialdata)
 	args := &phatdb.DBCommand{"CREATE", subpath, initialdata}
-	reply, err := c.processCallWithRetry(args)
+	reply := &phatdb.DBResponse{}
+	err := c.Cli.ProcessCallWithRetry("Server.RPCDB", args, reply)
 	if err != nil {
 		c.debug(DEBUG, "Create file %s errored %s", subpath, err)
 		return nil, err
+	}
+	replyErr := StringToError(reply.Error)
+	if replyErr != nil {
+		c.debug(DEBUG, "Create file %s errored %s", subpath, replyErr)
+		return nil, replyErr
 	}
 	c.debug(CALL, "Finished creating file %s with data %s", subpath, initialdata)
 	n := reply.Reply.(phatdb.DataNode)
@@ -94,9 +107,15 @@ func (c *PhatClient) Create(subpath string, initialdata string) (*phatdb.DataNod
 
 func (c *PhatClient) GetData(subpath string) (*phatdb.DataNode, error) {
 	args := &phatdb.DBCommand{"GET", subpath, ""}
-	reply, err := c.processCallWithRetry(args)
+	reply := &phatdb.DBResponse{}
+	err := c.Cli.ProcessCallWithRetry("Server.RPCDB", args, reply)
 	if err != nil {
 		return nil, err
+	}
+	replyErr := StringToError(reply.Error)
+	if replyErr != nil {
+		c.debug(DEBUG, "Get file %s errored %s", subpath, replyErr)
+		return nil, replyErr
 	}
 	n := reply.Reply.(phatdb.DataNode)
 
@@ -106,9 +125,15 @@ func (c *PhatClient) GetData(subpath string) (*phatdb.DataNode, error) {
 func (c *PhatClient) SetData(subpath string, data string) error {
 	c.debug(STATUS, "Setting Data")
 	args := &phatdb.DBCommand{"SET", subpath, data}
-	_, err := c.processCallWithRetry(args)
+	reply := &phatdb.DBResponse{}
+	err := c.Cli.ProcessCallWithRetry("Server.RPCDB", args, reply)
 	if err != nil {
 		return err
+	}
+	replyErr := StringToError(reply.Error)
+	if replyErr != nil {
+		c.debug(DEBUG, "Set file %s errored %s", subpath, replyErr)
+		return replyErr
 	}
 	return err
 }

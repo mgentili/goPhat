@@ -10,6 +10,7 @@ import (
 )
 
 const (
+	DefaultTimeout = time.Second
 	DEBUG          = 0
 	STATUS         = 1
 	CALL           = 2
@@ -29,13 +30,6 @@ func (c *Client) SetupClientLog() {
 	levelsToLog := []int{DEBUG, STATUS, CALL}
 	c.Log = level_log.NewLL(os.Stdout, fmt.Sprintf("%s: ", c.Uid))
 	c.Log.SetLevelsToLog(levelsToLog)
-}
-
-func (c *Client) StringToError(s string) error {
-	if s == "" {
-		return nil
-	}
-	return errors.New(s)
 }
 
 // NewClient creates a new client connected to the server with given id
@@ -115,4 +109,33 @@ loop:
 	}
 
 	return nil
+}
+
+// processCallWithRetry tries to make a client call until a timeout triggers
+// retries happen when the RPC call fails
+func (c *Client) ProcessCallWithRetry(RPCCall string, args interface{}, reply interface{}) error {
+	timer := time.NewTimer(DefaultTimeout)
+	giveupTimer := time.NewTimer(DefaultTimeout * 10)
+	//c.Log.Printf(DEBUG, "Type is %v, %v", reflect.TypeOf(args), reflect.TypeOf(reply))
+	for {
+		dbCall := c.RpcClient.Go(RPCCall, args, reply, nil)
+		select {
+		case <-giveupTimer.C:
+			c.Log.Printf(DEBUG, "Client completely giving up on this call")
+			return errors.New("Completely timed out")
+		case <-timer.C:
+			c.Log.Printf(DEBUG, "Single call timed out")
+			c.ConnectToMaster()
+			timer.Reset(DefaultTimeout)
+		case <-dbCall.Done:
+			if dbCall.Error == nil {
+				c.Log.Printf(STATUS, "Call done with no error")
+				return nil
+			}
+			c.Log.Printf(DEBUG, "Call failed with error %v", dbCall.Error)
+			time.Sleep(DefaultTimeout / 10)
+			//error possibilities 1) network failure 2) server can't process request
+			c.ConnectToMaster()
+		}
+	}
 }
