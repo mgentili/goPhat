@@ -19,13 +19,19 @@ var server_log *level_log.Logger
 type Server struct {
 	ReplicaServer   *vr.Replica
 	InputChan       chan phatdb.DBCommandWithChannel
-	ClientListeners map[int](chan int)
+	ClientTable map[string]ClientTableEntry
+
+}
+
+type ClientTableEntry struct {
+	SeqNumber uint
+	Response *phatdb.DBResponse
 }
 
 type ClientCommand struct {
 	Uid       string
 	SeqNumber uint
-	Cmd       string
+	Command *phatdb.DBCommand
 }
 
 type Null struct{}
@@ -106,7 +112,7 @@ func StartServer(address string, replica *vr.Replica) (*rpc.Server, error) {
 }
 
 // makes sure that replica is in appropriate state to respond to client request
-func (s *Server) checkState() error {
+func (s *Server) CheckState() error {
 	if s.ReplicaServer.Rstate.Status != vr.Normal {
 		return errors.New("My state isn't normal")
 	}
@@ -115,10 +121,12 @@ func (s *Server) checkState() error {
 	Id := s.ReplicaServer.Rstate.ReplicaNumber
 	s.debug(DEBUG, "Master id: %d, My id: %d", MasterId, Id)
 	// Temporary workaround to allow responses to SHA256 on non-master nodes
-	if Id != MasterId && args.Command != "SHA256" {
+	if Id != MasterId {
 		s.debug(DEBUG, "I'm not the master!")
 		return errors.New("Not master node")
 	}
+
+	return nil
 }
 
 // returns the master id, as long as replica is in a normal state
@@ -129,23 +137,40 @@ func (s *Server) GetMaster(args *Null, reply *uint) error {
 	}
 
 	*reply = s.ReplicaServer.GetMasterId()
-}
-
-func (s *Server) Push(args *string, reply *Null) error {
-	if err := s.CheckState(); err != nil {
-		return err
-	}
 	return nil
 }
 
-func (s *Server) Pop(args *Null, reply *string) error {
-	if err := s.CheckState(); err != nil {
-		return err
+func (s *Server) CheckClientTable(args *ClientCommand) (*phatdb.DBResponse, error) {
+	if res, ok := s.ClientTable[args.Uid]; ok {
+		if args.SeqNumber < res.SeqNumber || res.Response == nil {
+			return nil, errors.New("Old Request")
+		}
+		if args.SeqNumber == res.SeqNumber {
+			return res.Response, nil
+		}
 	}
+
+	return nil, nil
 }
 
-func (s *Server) Done(args *Null, reply *Null) error {
+func (s *Server) Send(args *ClientCommand, reply *phatdb.DBResponse) error {
 	if err := s.CheckState(); err != nil {
 		return err
 	}
+	res, err := s.CheckClientTable(args)
+	if err != nil {
+		return err
+	}
+	if res != nil {
+		reply = res
+		return nil
+	}
+	s.ClientTable[args.Uid] = ClientTableEntry{args.SeqNumber, nil}
+
+	argsWithChannel := phatdb.DBCommandWithChannel{args.Command, make(chan *phatdb.DBResponse, 1)}
+	s.ReplicaServer.RunVR(CommandFunctor{argsWithChannel})
+	reply = <-argsWithChannel.Done
+	s.ClientTable[args.Uid] = ClientTableEntry{s.ClientTable[args.Uid].SeqNumber, reply}
+
+	return nil
 }
