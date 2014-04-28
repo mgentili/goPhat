@@ -1,6 +1,5 @@
-package main
+package phatqueue
 
-import "fmt"
 import "container/list"
 
 type QMessage struct {
@@ -50,20 +49,4 @@ func (mq *MessageQueue) Len() int {
 
 func (mq *MessageQueue) LenInProgress() int {
 	return len(mq.inProgress)
-}
-
-func main() {
-	mq := MessageQueue{}
-	mq.Init()
-	mq.Push(1)
-	mq.Push(4)
-	mq.Push(8)
-	for mq.Len() > 0 {
-		fmt.Printf("MQ L:%d IP:%d\n", mq.Len(), mq.LenInProgress())
-		e := mq.Pop()
-		fmt.Printf("MQ L:%d IP:%d\n", mq.Len(), mq.LenInProgress())
-		fmt.Printf("%+v\n", e.Value)
-		mq.Done(e.MessageID)
-		fmt.Printf("=-=-=\n")
-	}
 }
