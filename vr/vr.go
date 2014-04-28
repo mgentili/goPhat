@@ -342,7 +342,9 @@ func (r *Replica) ReplicaRun() {
 		conn, err := r.Listener.Accept()
 		if err != nil {
 			r.Debug(ERROR, "err: %v", err)
-			r.Listener.Close()
+			if r.Listener != nil {
+				r.Listener.Close()
+			}
 			r.Listener = nil
 			time.Sleep(500 * time.Millisecond)
 			continue
