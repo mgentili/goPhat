@@ -5,14 +5,14 @@ import (
 )
 
 type GetStateArgs struct {
-	View uint
+	View     uint
 	OpNumber uint
 }
 
 type GetStateResponse struct {
-	View uint
-	Log *phatlog.Log
-	OpNumber uint
+	View         uint
+	Log          *phatlog.Log
+	OpNumber     uint
 	CommitNumber uint
 }
 
@@ -26,9 +26,9 @@ func (r *Replica) StartStateTransfer() {
 	args := GetStateArgs{r.Rstate.View, r.Rstate.OpNumber}
 
 	//send State Transfer RPC to master
-	r.sendAndRecvTo([]uint{r.Rstate.View % NREPLICAS}, "RPCReplica.GetState", args, 
-		func() interface{} { return new(GetStateResponse) }, 
-		func(reply interface{}) bool { return r.handleGetStateResponse(reply.(*GetStateResponse))})
+	r.sendAndRecvTo([]uint{r.Rstate.View % NREPLICAS}, "RPCReplica.GetState", args,
+		func() interface{} { return new(GetStateResponse) },
+		func(reply interface{}) bool { return r.handleGetStateResponse(reply.(*GetStateResponse)) })
 }
 
 func (t *RPCReplica) GetState(args *GetStateArgs, reply *GetStateResponse) error {
@@ -42,7 +42,7 @@ func (t *RPCReplica) GetState(args *GetStateArgs, reply *GetStateResponse) error
 
 	//TODO: Only need to send new part of log
 	*reply = GetStateResponse{r.Rstate.View, r.Phatlog, r.Rstate.OpNumber,
-			 r.Rstate.CommitNumber}
+		r.Rstate.CommitNumber}
 
 	return nil
 }
@@ -54,6 +54,6 @@ func (r *Replica) handleGetStateResponse(reply *GetStateResponse) bool {
 	r.Phatlog = reply.Log
 	r.Rstate.OpNumber = reply.OpNumber
 	r.doCommit(reply.CommitNumber)
-	
+
 	return true
 }
