@@ -1,20 +1,21 @@
 package phatqueue
 
 import "container/list"
+import "strconv"
 
 type QMessage struct {
-	MessageID int
+	MessageID string
 	Value     interface{}
 }
 
 type MessageQueue struct {
 	queue      list.List
-	inProgress map[int]QMessage
+	inProgress map[string]QMessage
 	id         int
 }
 
 func (mq *MessageQueue) Init() {
-	mq.inProgress = make(map[int]QMessage)
+	mq.inProgress = make(map[string]QMessage)
 }
 
 func (mq *MessageQueue) NextID() int {
@@ -23,7 +24,7 @@ func (mq *MessageQueue) NextID() int {
 }
 
 func (mq *MessageQueue) Push(v interface{}) {
-	qm := QMessage{mq.NextID(), v}
+	qm := QMessage{strconv.Itoa(mq.NextID()), v}
 	mq.queue.PushBack(qm)
 }
 
@@ -32,13 +33,13 @@ func (mq *MessageQueue) Pop() *QMessage {
 		return nil
 	}
 	e := mq.queue.Front()
+	qmesg := e.Value.(QMessage)
 	mq.queue.Remove(e)
-	qm := e.Value.(QMessage)
-	mq.inProgress[qm.MessageID] = qm
-	return &qm
+	mq.inProgress[qmesg.MessageID] = qmesg
+	return &qmesg
 }
 
-func (mq *MessageQueue) Done(mid int) {
+func (mq *MessageQueue) Done(mid string) {
 	// TODO: Ensure it exists and return an error otherwise
 	delete(mq.inProgress, mid)
 }

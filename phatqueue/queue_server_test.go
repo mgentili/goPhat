@@ -31,17 +31,26 @@ func TestQServer(t *testing.T) {
 		<-pushCmd.Done
 	}
 	//
+	input <- lenCmd
+	resp := <-lenCmd.Done
+	if resp.Error != "" || resp.Reply != len(elems) {
+		t.Errorf("Length should match length of elems")
+	}
+	//
 	for i, val := range elems {
 		input <- popCmd
-		resp := <-popCmd.Done
-		if resp.Error != "" && resp.Reply != val {
-			t.Errorf("SET fails with %s", resp.Error)
+		resp = <-popCmd.Done
+		if resp.Error != "" || resp.Reply == nil || resp.Reply.(*QMessage).Value != val {
+			t.Errorf("POP fails with %v", resp.Reply)
 		}
+		//
+		//doneCmd := QCommandWithChannel{&QCommand{"DONE", resp.Reply.(QMessage).MessageID}, make(chan *QResponse)}
+		//<-doneCmd.Done
+		//
 		input <- lenCmd
 		resp = <-lenCmd.Done
-		if resp.Error != "" && resp.Reply != len(elems)-i {
-			t.Errorf("Length didn't match expectation")
+		if resp.Error != "" || resp.Reply != len(elems)-(i+1) {
+			t.Errorf("Length of %v didn't match expectation of %v", resp.Reply, len(elems)-(i+1))
 		}
-		//doneCmd = DBCommandWithChannel{&DBCommand{"DONE", }, make(chan *DBResponse)}
 	}
 }

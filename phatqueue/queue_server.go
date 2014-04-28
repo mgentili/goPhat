@@ -1,7 +1,5 @@
 package phatqueue
 
-import "strconv"
-
 type QCommand struct {
 	Command string
 	Value   string
@@ -31,16 +29,11 @@ func QueueServer(input chan QCommandWithChannel) {
 			mq.Push(req.Value)
 		case "POP":
 			v := mq.Pop()
-			if v == nil {
+			if v != nil {
 				resp.Reply = v
 			}
 		case "DONE":
-			mid, err := strconv.Atoi(req.Value)
-			if err == nil {
-				mq.Done(mid)
-			} else {
-				resp.Error = "Conversion from string to integer had an issue"
-			}
+			mq.Done(req.Value)
 		case "LEN":
 			resp.Reply = mq.Len()
 		case "LEN_IN_PROGRESS":
