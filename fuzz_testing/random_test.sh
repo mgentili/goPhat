@@ -1,6 +1,11 @@
 #!/bin/bash
 # arguments
 
+if [ 3 -ne $# ]; then
+    echo "Usage: $0 F seed runs" 1>&2
+    exit 1
+fi
+
 F=$1
 SEED=$2
 RUNS=$3
@@ -44,7 +49,4 @@ timer_total
 
 #time timer_total
 
-./install.sh
-fuzz_testing --path $LOC
-
-rm -f $LOC
+./install.sh && fuzz_testing --path $LOC && rm -f $LOC
