@@ -3,7 +3,8 @@ package worker
 import (
 	//	"encoding/gob"
 	"github.com/mgentili/goPhat/client"
-	//"github.com/mgentili/goPhat/queueserver"
+	"github.com/mgentili/goPhat/queueRPC"
+	"github.com/mgentili/goPhat/phatqueue"
 )
 
 const (
@@ -37,22 +38,26 @@ func NewWorker(servers []string, id uint, uid string) (*Worker, error) {
 	return w, nil
 }
 
-func (w *Worker) Pop() (string, error) {
-	//args := new(queueserver.ClientCommand{w.Cli.Uid, w.SeqNumber, ""})
-	args := new(struct{})
-	response := new(string)
+func (w *Worker) Pop() (*phatqueue.QResponse, error) {
+	cmd := &phatqueue.QCommand{"Pop", ""}
+	args := &queueRPC.ClientCommand{w.Cli.Uid, w.SeqNumber, cmd}
+	response := &phatqueue.QResponse{}
 	w.SeqNumber++
-	err := w.Cli.RpcClient.Call("Server.Pop", args, response)
+	err := w.Cli.RpcClient.Call("Server.Send", args, response)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return *response, err
+	return response, err
 }
 
 func (w *Worker) Done() error {
-	//args := new(queueserver.ClientCommand{w.Cli.Uid, w.SeqNumber, ""})
-	args := new(struct{})
-	response := new(struct{})
-	err := w.Cli.RpcClient.Call("Server.Done", args, response)
+	cmd := &phatqueue.QCommand{"Done", ""}
+	args := &queueRPC.ClientCommand{w.Cli.Uid, w.SeqNumber, cmd}
+	response := &phatqueue.QResponse{}
+	w.SeqNumber++
+	err := w.Cli.RpcClient.Call("Server.Send", args, response)
+	if err != nil {
+		return err
+	}
 	return err
 }
