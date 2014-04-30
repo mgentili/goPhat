@@ -10,7 +10,7 @@ func TestDatabaseHash(t *testing.T) {
 	//
 	hashCmd := DBCommandWithChannel{&DBCommand{"SHA256", "", ""}, make(chan *DBResponse)}
 	input <- hashCmd
-	expected := "55c8e1bda0453b939ff4b403e418931485841ec44c3256877d4509cd6b0c4199"
+	expected := "<FN Children=map[string]*phatdb.FileNode{} Data=<nil>>"
 	if resp := <-hashCmd.Done; resp.Reply != expected || resp.Error != "" {
 		t.Errorf("Hash returned %v instead of %v", resp.Reply, expected)
 	}
@@ -22,7 +22,7 @@ func TestDatabaseHash(t *testing.T) {
 	}
 	//
 	input <- hashCmd
-	expected = "e154e0661633e98ef88150d6ae5e2b80a2cdc198b43f684b63d0640178b2fed9"
+	expected = "<FN Children=map[string]*phatdb.FileNode{\"dev\":<FN Children=map[string]*phatdb.FileNode{\"null\":<FN Children=map[string]*phatdb.FileNode{} Data=<DN V=\"empty\" Stats=<SN V=1 CV=0 NC=0>>>} Data=<DN V=\"\" Stats=<SN V=0 CV=0 NC=0>>>} Data=<nil>>"
 	if resp := <-hashCmd.Done; resp.Reply != expected || resp.Error != "" {
 		t.Errorf("Hash returned %v instead of %v", resp.Reply, expected)
 	}

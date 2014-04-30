@@ -1,21 +1,21 @@
-package main
+package phatqueue
 
-import "fmt"
 import "container/list"
+import "strconv"
 
 type QMessage struct {
-	MessageID int
+	MessageID string
 	Value     interface{}
 }
 
 type MessageQueue struct {
 	queue      list.List
-	inProgress map[int]QMessage
+	inProgress map[string]QMessage
 	id         int
 }
 
 func (mq *MessageQueue) Init() {
-	mq.inProgress = make(map[int]QMessage)
+	mq.inProgress = make(map[string]QMessage)
 }
 
 func (mq *MessageQueue) NextID() int {
@@ -24,7 +24,7 @@ func (mq *MessageQueue) NextID() int {
 }
 
 func (mq *MessageQueue) Push(v interface{}) {
-	qm := QMessage{mq.NextID(), v}
+	qm := QMessage{strconv.Itoa(mq.NextID()), v}
 	mq.queue.PushBack(qm)
 }
 
@@ -33,13 +33,13 @@ func (mq *MessageQueue) Pop() *QMessage {
 		return nil
 	}
 	e := mq.queue.Front()
+	qmesg := e.Value.(QMessage)
 	mq.queue.Remove(e)
-	qm := e.Value.(QMessage)
-	mq.inProgress[qm.MessageID] = qm
-	return &qm
+	mq.inProgress[qmesg.MessageID] = qmesg
+	return &qmesg
 }
 
-func (mq *MessageQueue) Done(mid int) {
+func (mq *MessageQueue) Done(mid string) {
 	// TODO: Ensure it exists and return an error otherwise
 	delete(mq.inProgress, mid)
 }
@@ -50,20 +50,4 @@ func (mq *MessageQueue) Len() int {
 
 func (mq *MessageQueue) LenInProgress() int {
 	return len(mq.inProgress)
-}
-
-func main() {
-	mq := MessageQueue{}
-	mq.Init()
-	mq.Push(1)
-	mq.Push(4)
-	mq.Push(8)
-	for mq.Len() > 0 {
-		fmt.Printf("MQ L:%d IP:%d\n", mq.Len(), mq.LenInProgress())
-		e := mq.Pop()
-		fmt.Printf("MQ L:%d IP:%d\n", mq.Len(), mq.LenInProgress())
-		fmt.Printf("%+v\n", e.Value)
-		mq.Done(e.MessageID)
-		fmt.Printf("=-=-=\n")
-	}
 }
