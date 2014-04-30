@@ -1,11 +1,11 @@
-package queueserver
+package queueRPC
 
 import (
 	"encoding/gob"
 	"errors"
 	"fmt"
 	"github.com/mgentili/goPhat/level_log"
-	"github.com/mgentili/goPhat/phatdb"
+	"github.com/mgentili/goPhat/phatqueue"
 	"github.com/mgentili/goPhat/vr"
 	"net"
 	"net/rpc"
@@ -18,34 +18,34 @@ var server_log *level_log.Logger
 
 type Server struct {
 	ReplicaServer   *vr.Replica
-	InputChan       chan phatdb.DBCommandWithChannel
+	InputChan       chan phatqueue.QCommandWithChannel
 	ClientTable map[string]ClientTableEntry
 
 }
 
 type ClientTableEntry struct {
 	SeqNumber uint
-	Response *phatdb.DBResponse
+	Response *phatqueue.QResponse
 }
 
 type ClientCommand struct {
 	Uid       string
 	SeqNumber uint
-	Command *phatdb.DBCommand
+	Command *phatqueue.QCommand
 }
 
 type Null struct{}
 
 // wraps a DB command to conform to the vr.Command interface
 type CommandFunctor struct {
-	Command phatdb.DBCommandWithChannel
+	Command phatqueue.QCommandWithChannel
 }
 
 func (c CommandFunctor) CommitFunc(context interface{}) {
 	server := context.(*Server)
 	argsWithChannel := c.Command
-	// we make our own DBCommandWithChannel so we (VR) can make sure the DB has committed before continuing on
-	newArgsWithChannel := phatdb.DBCommandWithChannel{argsWithChannel.Cmd, make(chan *phatdb.DBResponse)}
+	// we make our own QCommandWithChannel so we (VR) can make sure the DB has committed before continuing on
+	newArgsWithChannel := phatqueue.QCommandWithChannel{argsWithChannel.Cmd, make(chan *phatqueue.QResponse)}
 	server.InputChan <- newArgsWithChannel
 	// wait til the DB has actually committed the transaction
 	result := <-newArgsWithChannel.Done
@@ -61,11 +61,11 @@ func (s *Server) debug(level int, format string, args ...interface{}) {
 	server_log.Printf(level, str, args...)
 }
 
-// startDB starts the database for the server
-func (s *Server) startDB() {
-	input := make(chan phatdb.DBCommandWithChannel)
+// startDB starts the queue for the server
+func (s *Server) startQueue() {
+	input := make(chan phatqueue.QCommandWithChannel)
 	s.InputChan = input
-	go phatdb.DatabaseServer(input)
+	go phatqueue.QueueServer(input)
 }
 
 func SetupLog() {
@@ -87,7 +87,7 @@ func StartServer(address string, replica *vr.Replica) (*rpc.Server, error) {
 
 	serve := new(Server)
 	serve.ReplicaServer = replica
-	serve.startDB()
+	serve.startQueue()
 	replica.Context = serve
 
 	newServer := rpc.NewServer()
@@ -100,10 +100,9 @@ func StartServer(address string, replica *vr.Replica) (*rpc.Server, error) {
 	// as a generic interface{} (I don't understand the details that well,
 	// see http://stackoverflow.com/questions/21934730/gob-type-not-registered-for-interface-mapstringinterface)
 	gob.Register(CommandFunctor{})
-	gob.Register(phatdb.DBCommandWithChannel{})
-	// Need to register all types that are returned within the DBResponse
-	gob.Register(phatdb.DataNode{})
-	gob.Register(phatdb.StatNode{})
+	gob.Register(phatqueue.QCommandWithChannel{})
+	// Need to register all types that are returned within the QResponse
+	gob.Register(phatqueue.QMessage{})
 
 	serve.debug(DEBUG, "Server at %s trying to accept new client connections\n", address)
 	go newServer.Accept(listener)
@@ -140,7 +139,7 @@ func (s *Server) GetMaster(args *Null, reply *uint) error {
 	return nil
 }
 
-func (s *Server) CheckClientTable(args *ClientCommand) (*phatdb.DBResponse, error) {
+func (s *Server) CheckClientTable(args *ClientCommand) (*phatqueue.QResponse, error) {
 	if res, ok := s.ClientTable[args.Uid]; ok {
 		if args.SeqNumber < res.SeqNumber || res.Response == nil {
 			return nil, errors.New("Old Request")
@@ -153,7 +152,7 @@ func (s *Server) CheckClientTable(args *ClientCommand) (*phatdb.DBResponse, erro
 	return nil, nil
 }
 
-func (s *Server) Send(args *ClientCommand, reply *phatdb.DBResponse) error {
+func (s *Server) Send(args *ClientCommand, reply *phatqueue.QResponse) error {
 	if err := s.CheckState(); err != nil {
 		return err
 	}
@@ -167,7 +166,7 @@ func (s *Server) Send(args *ClientCommand, reply *phatdb.DBResponse) error {
 	}
 	s.ClientTable[args.Uid] = ClientTableEntry{args.SeqNumber, nil}
 
-	argsWithChannel := phatdb.DBCommandWithChannel{args.Command, make(chan *phatdb.DBResponse, 1)}
+	argsWithChannel := phatqueue.QCommandWithChannel{args.Command, make(chan *phatqueue.QResponse, 1)}
 	s.ReplicaServer.RunVR(CommandFunctor{argsWithChannel})
 	reply = <-argsWithChannel.Done
 	s.ClientTable[args.Uid] = ClientTableEntry{s.ClientTable[args.Uid].SeqNumber, reply}
