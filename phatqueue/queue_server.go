@@ -31,6 +31,8 @@ func QueueServer(input chan QCommandWithChannel) {
 			v := mq.Pop()
 			if v != nil {
 				resp.Reply = v
+			} else {
+				resp.Error = "Nothing to pop"
 			}
 		case "DONE":
 			mq.Done(req.Value)
@@ -41,6 +43,7 @@ func QueueServer(input chan QCommandWithChannel) {
 		default:
 			resp.Error = "Unknown command"
 		}
+
 		request.Done <- resp
 	}
 }
