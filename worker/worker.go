@@ -2,9 +2,10 @@ package worker
 
 import (
 	//	"encoding/gob"
+	"errors"
 	"github.com/mgentili/goPhat/client"
-	"github.com/mgentili/goPhat/queueRPC"
 	"github.com/mgentili/goPhat/phatqueue"
+	"github.com/mgentili/goPhat/queueRPC"
 )
 
 const (
@@ -38,8 +39,7 @@ func NewWorker(servers []string, id uint, uid string) (*Worker, error) {
 	return w, nil
 }
 
-func (w *Worker) Pop() (*phatqueue.QResponse, error) {
-	cmd := &phatqueue.QCommand{"Pop", ""}
+func (w *Worker) processCall(cmd *phatqueue.QCommand) (*phatqueue.QResponse, error) {
 	args := &queueRPC.ClientCommand{w.Cli.Uid, w.SeqNumber, cmd}
 	response := &phatqueue.QResponse{}
 	w.SeqNumber++
@@ -47,17 +47,30 @@ func (w *Worker) Pop() (*phatqueue.QResponse, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	if response.Error != "" {
+		return nil, errors.New(response.Error)
+	}
+
 	return response, err
 }
 
+func (w *Worker) Push(work string) error {
+	cmd := &phatqueue.QCommand{"PUSH", work}
+	_, err := w.processCall(cmd)
+	return err
+}
+
+func (w *Worker) Pop() (*phatqueue.QResponse, error) {
+	cmd := &phatqueue.QCommand{"POP", ""}
+	res, err := w.processCall(cmd)
+
+	// TODO: Make it do something with the response?
+	return res, err
+}
+
 func (w *Worker) Done() error {
-	cmd := &phatqueue.QCommand{"Done", ""}
-	args := &queueRPC.ClientCommand{w.Cli.Uid, w.SeqNumber, cmd}
-	response := &phatqueue.QResponse{}
-	w.SeqNumber++
-	err := w.Cli.RpcClient.Call("Server.Send", args, response)
-	if err != nil {
-		return err
-	}
+	cmd := &phatqueue.QCommand{"DONE", ""}
+	_, err := w.processCall(cmd)
 	return err
 }

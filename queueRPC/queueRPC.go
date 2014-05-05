@@ -17,21 +17,20 @@ const DEBUG = 0
 var server_log *level_log.Logger
 
 type Server struct {
-	ReplicaServer   *vr.Replica
-	InputChan       chan phatqueue.QCommandWithChannel
-	ClientTable map[string]ClientTableEntry
-
+	ReplicaServer *vr.Replica
+	InputChan     chan phatqueue.QCommandWithChannel
+	ClientTable   map[string]ClientTableEntry
 }
 
 type ClientTableEntry struct {
 	SeqNumber uint
-	Response *phatqueue.QResponse
+	Response  *phatqueue.QResponse
 }
 
 type ClientCommand struct {
 	Uid       string
 	SeqNumber uint
-	Command *phatqueue.QCommand
+	Command   *phatqueue.QCommand
 }
 
 type Null struct{}
@@ -87,6 +86,7 @@ func StartServer(address string, replica *vr.Replica) (*rpc.Server, error) {
 
 	serve := new(Server)
 	serve.ReplicaServer = replica
+	serve.ClientTable = make(map[string]ClientTableEntry)
 	serve.startQueue()
 	replica.Context = serve
 
@@ -111,7 +111,7 @@ func StartServer(address string, replica *vr.Replica) (*rpc.Server, error) {
 }
 
 // makes sure that replica is in appropriate state to respond to client request
-func (s *Server) CheckState() error {
+func (s *Server) checkState() error {
 	if s.ReplicaServer.Rstate.Status != vr.Normal {
 		return errors.New("My state isn't normal")
 	}
@@ -139,7 +139,7 @@ func (s *Server) GetMaster(args *Null, reply *uint) error {
 	return nil
 }
 
-func (s *Server) CheckClientTable(args *ClientCommand) (*phatqueue.QResponse, error) {
+func (s *Server) checkClientTable(args *ClientCommand) (*phatqueue.QResponse, error) {
 	if res, ok := s.ClientTable[args.Uid]; ok {
 		if args.SeqNumber < res.SeqNumber || res.Response == nil {
 			return nil, errors.New("Old Request")
@@ -153,10 +153,15 @@ func (s *Server) CheckClientTable(args *ClientCommand) (*phatqueue.QResponse, er
 }
 
 func (s *Server) Send(args *ClientCommand, reply *phatqueue.QResponse) error {
-	if err := s.CheckState(); err != nil {
+
+	// check to make sure that server receiving client RPC is the master
+	// and is in Normal condition
+	if err := s.checkState(); err != nil {
 		return err
 	}
-	res, err := s.CheckClientTable(args)
+
+	// check to see if client has already sent this request before
+	res, err := s.checkClientTable(args)
 	if err != nil {
 		return err
 	}
@@ -164,11 +169,15 @@ func (s *Server) Send(args *ClientCommand, reply *phatqueue.QResponse) error {
 		reply = res
 		return nil
 	}
+
+	// place a new "in progress" (nil) entry in the client table
 	s.ClientTable[args.Uid] = ClientTableEntry{args.SeqNumber, nil}
 
 	argsWithChannel := phatqueue.QCommandWithChannel{args.Command, make(chan *phatqueue.QResponse, 1)}
 	s.ReplicaServer.RunVR(CommandFunctor{argsWithChannel})
-	reply = <-argsWithChannel.Done
+	result := <-argsWithChannel.Done
+	*reply = *result
+	// place the response entry into the client table
 	s.ClientTable[args.Uid] = ClientTableEntry{s.ClientTable[args.Uid].SeqNumber, reply}
 
 	return nil
