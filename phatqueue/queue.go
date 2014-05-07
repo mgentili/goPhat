@@ -35,7 +35,9 @@ func (mq *MessageQueue) Pop() *QMessage {
 	e := mq.queue.Front()
 	qmesg := e.Value.(QMessage)
 	mq.queue.Remove(e)
-	mq.inProgress[qmesg.MessageID] = qmesg
+	// TODO: When we actually care about "in progress" messages
+	// Until then, this is equivalent to a memory leak
+	//mq.inProgress[qmesg.MessageID] = qmesg
 	return &qmesg
 }
 
