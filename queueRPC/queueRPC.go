@@ -69,7 +69,7 @@ func (s *Server) startQueue() {
 
 func SetupLog() {
 	if server_log == nil {
-		levelsToLog := []int{DEBUG}
+		levelsToLog := []int{}
 		server_log = level_log.NewLL(os.Stdout, "s")
 		server_log.SetLevelsToLog(levelsToLog)
 	}
