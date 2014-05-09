@@ -56,6 +56,7 @@ func (c CommandFunctor) CommitFunc(context interface{}) {
 }
 
 func (s *Server) debug(level int, format string, args ...interface{}) {
+	return
 	str := fmt.Sprintf("%d: %s", s.ReplicaServer.Rstate.ReplicaNumber, format)
 	server_log.Printf(level, str, args...)
 }
@@ -69,7 +70,7 @@ func (s *Server) startQueue() {
 
 func SetupLog() {
 	if server_log == nil {
-		levelsToLog := []int{}
+		levelsToLog := []int{DEBUG}
 		server_log = level_log.NewLL(os.Stdout, "s")
 		server_log.SetLevelsToLog(levelsToLog)
 	}
@@ -159,7 +160,7 @@ func (s *Server) Send(args *ClientCommand, reply *phatqueue.QResponse) error {
 	if err := s.checkState(); err != nil {
 		return err
 	}
-
+	//s.debug(DEBUG, "Received message with %v", args)
 	// check to see if client has already sent this request before
 	res, err := s.checkClientTable(args)
 	if err != nil {
@@ -174,7 +175,13 @@ func (s *Server) Send(args *ClientCommand, reply *phatqueue.QResponse) error {
 	s.ClientTable[args.Uid] = ClientTableEntry{args.SeqNumber, nil}
 
 	argsWithChannel := phatqueue.QCommandWithChannel{args.Command, make(chan *phatqueue.QResponse, 1)}
-	s.ReplicaServer.RunVR(CommandFunctor{argsWithChannel})
+
+	paxos := true
+	if paxos {
+		s.ReplicaServer.RunVR(CommandFunctor{argsWithChannel})
+	} else {
+		s.InputChan <- argsWithChannel
+	}	
 	result := <-argsWithChannel.Done
 	*reply = *result
 	// place the response entry into the client table
