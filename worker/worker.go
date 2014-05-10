@@ -4,7 +4,7 @@ import (
 	//	"encoding/gob"
 	"errors"
 	"github.com/mgentili/goPhat/client"
-	"github.com/mgentili/goPhat/phatqueue"
+	"github.com/mgentili/goPhat/queuedisk"
 	"github.com/mgentili/goPhat/queueRPC"
 )
 
@@ -39,9 +39,9 @@ func NewWorker(servers []string, id uint, uid string) (*Worker, error) {
 	return w, nil
 }
 
-func (w *Worker) processCall(cmd *phatqueue.QCommand) (*phatqueue.QResponse, error) {
+func (w *Worker) processCall(cmd *queuedisk.QCommand) (*queuedisk.QResponse, error) {
 	args := &queueRPC.ClientCommand{w.Cli.Uid, w.SeqNumber, cmd}
-	response := &phatqueue.QResponse{}
+	response := &queuedisk.QResponse{}
 	w.SeqNumber++
 	err := w.Cli.RpcClient.Call("Server.Send", args, response)
 	if err != nil {
@@ -56,13 +56,13 @@ func (w *Worker) processCall(cmd *phatqueue.QCommand) (*phatqueue.QResponse, err
 }
 
 func (w *Worker) Push(work string) error {
-	cmd := &phatqueue.QCommand{"PUSH", work}
+	cmd := &queuedisk.QCommand{"PUSH", work}
 	_, err := w.processCall(cmd)
 	return err
 }
 
-func (w *Worker) Pop() (*phatqueue.QResponse, error) {
-	cmd := &phatqueue.QCommand{"POP", ""}
+func (w *Worker) Pop() (*queuedisk.QResponse, error) {
+	cmd := &queuedisk.QCommand{"POP", ""}
 	res, err := w.processCall(cmd)
 
 	// TODO: Make it do something with the response?
@@ -70,7 +70,7 @@ func (w *Worker) Pop() (*phatqueue.QResponse, error) {
 }
 
 func (w *Worker) Done() error {
-	cmd := &phatqueue.QCommand{"DONE", ""}
+	cmd := &queuedisk.QCommand{"DONE", ""}
 	_, err := w.processCall(cmd)
 	return err
 }
