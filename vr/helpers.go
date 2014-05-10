@@ -66,7 +66,9 @@ func (mstate *MasterState) Reset() {
 // just closes the connections (doesn't stop timers, etc.)
 func (r *Replica) ShutdownIncoming() {
 	// TODO: locking
-	r.Listener.Close()
+	if r.Listener != nil {
+		r.Listener.Close()
+	}
 	for _, c := range r.Codecs {
 		c.Close()
 	}

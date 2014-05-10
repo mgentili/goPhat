@@ -8,6 +8,7 @@ import (
 type RecoveryState struct {
 	RecoveryResponseMsgs    []RecoveryResponse
 	RecoveryResponseReplies uint64
+	EmptyLogs               uint
 	RecoveryResponses       uint
 	Nonce                   uint
 }
@@ -24,6 +25,7 @@ type RecoveryResponse struct {
 	OpNumber      uint
 	CommitNumber  uint
 	ReplicaNumber uint
+	Normal        bool
 }
 
 func (r *Replica) resetRcvstate() {
@@ -62,13 +64,10 @@ func (t *RPCReplica) Recovery(args *RecoveryArgs, reply *RecoveryResponse) error
 
 	r.Debug(STATUS, "Got Recovery RPC")
 
-	//only send a response if our state is normal
-	if r.Rstate.Status != Normal {
-		return nil
-	}
+	*reply = RecoveryResponse{r.Rstate.View, args.Nonce, r.Phatlog, r.Rstate.OpNumber,
+		r.Rstate.CommitNumber, r.Rstate.ReplicaNumber, r.Rstate.Status == Normal}
 
 	//TODO:only send log and everything else if master
-	*reply = RecoveryResponse{r.Rstate.View, args.Nonce, r.Phatlog, r.Rstate.OpNumber, r.Rstate.CommitNumber, r.Rstate.ReplicaNumber}
 
 	return nil
 }
@@ -87,7 +86,14 @@ func (r *Replica) handleRecoveryResponse(reply *RecoveryResponse) bool {
 	}
 
 	r.Rcvstate.RecoveryResponseReplies |= 1 << reply.ReplicaNumber
-	r.Rcvstate.RecoveryResponses++
+	if reply.Normal {
+		r.Rcvstate.RecoveryResponses++
+	}
+
+	if reply.Log.MaxIndex == 0 {
+		r.Rcvstate.EmptyLogs++
+	}
+
 	r.Rcvstate.RecoveryResponseMsgs[reply.ReplicaNumber] = *reply
 
 	// update our view number
@@ -98,6 +104,15 @@ func (r *Replica) handleRecoveryResponse(reply *RecoveryResponse) bool {
 	// this could be outdated, but it WON'T be outdated once we have F+1 responses
 	var masterId uint = r.Rstate.View % NREPLICAS
 
+	var ret bool = false
+
+	// if majority of replicas respond with empty logs, then we've just started
+	// so we go into view change
+	if r.Rcvstate.EmptyLogs >= F+1 {
+		r.PrepareViewChange()
+		ret = true
+		r.Debug(STATUS, "Received quorum of empty logs, going to Normal")
+	}
 	//We have recived enough Recovery messages and have recieved from master
 	if r.Rcvstate.RecoveryResponses >= F+1 && ((1<<masterId)&r.Rcvstate.RecoveryResponseReplies) != 0 {
 		r.Rstate.View = r.Rcvstate.RecoveryResponseMsgs[masterId].View
@@ -106,11 +121,13 @@ func (r *Replica) handleRecoveryResponse(reply *RecoveryResponse) bool {
 		r.doCommit(r.Rcvstate.RecoveryResponseMsgs[masterId].CommitNumber)
 		assert(r.Rstate.CommitNumber == r.Rcvstate.RecoveryResponseMsgs[masterId].CommitNumber)
 		r.Rstate.Status = Normal
-		r.resetRcvstate()
+		ret = true
 		r.Debug(STATUS, "Done with Recovery!")
-
-		return true
 	}
 
-	return false
+	if ret {
+		r.resetRcvstate()
+	}
+
+	return ret
 }

@@ -150,7 +150,8 @@ func (t *RPCReplica) Prepare(args *PrepareArgs, reply *PrepareReply) error {
 	}
 	if args.OpNumber > r.Rstate.OpNumber+1 {
 		// we must be behind?
-		r.PrepareRecovery()
+		//r.PrepareRecovery()
+		r.StartStateTransfer()
 		return fmt.Errorf("op numbers out of sync: got %d expected %d", args.OpNumber, r.Rstate.OpNumber+1)
 	}
 
@@ -285,8 +286,12 @@ func RunAsReplica(i uint, config []string) *Replica {
 
 	go r.ReplicaRun()
 
+	// start in recovery, in case we're being restarted from a previous run.
+	// if this is indeed the first run, we'll next go to view change mode to decide a master
+	r.PrepareRecovery()
+
 	// start in view change mode, so we can figure out who will be the master
-	r.PrepareViewChange()
+	//r.PrepareViewChange()
 
 	return r
 }
@@ -337,7 +342,9 @@ func (r *Replica) ReplicaRun() {
 		conn, err := r.Listener.Accept()
 		if err != nil {
 			r.Debug(ERROR, "err: %v", err)
-			r.Listener.Close()
+			if r.Listener != nil {
+				r.Listener.Close()
+			}
 			r.Listener = nil
 			time.Sleep(500 * time.Millisecond)
 			continue

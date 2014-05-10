@@ -43,6 +43,9 @@ func (r *Replica) resetVcstate() {
 //A replica notices that a viewchange is needed
 func (r *Replica) PrepareViewChange() {
 	r.resetVcstate()
+	if r.Rstate.Status == Normal {
+		r.Vcstate.NormalView = r.Rstate.View
+	}
 	r.Rstate.Status = ViewChange
 	r.Rstate.View++
 	r.Debug(STATUS, "PrepareViewChange")
@@ -60,7 +63,7 @@ func (t *RPCReplica) StartViewChange(args *StartViewChangeArgs, reply *int) erro
 	r := t.R
 
 	//This view is already ahead of the proposed one
-	if r.Rstate.View > args.View {
+	if r.Rstate.View > args.View || (r.Rstate.View == args.View && r.Rstate.Status != ViewChange) {
 		return nil
 	}
 
@@ -79,7 +82,9 @@ func (t *RPCReplica) StartViewChange(args *StartViewChangeArgs, reply *int) erro
 
 	//first time we have seen this viewchange message
 	if r.Rstate.View < args.View {
-		r.Vcstate.NormalView = r.Rstate.View //last known normal View
+		if r.Rstate.Status == Normal {
+			r.Vcstate.NormalView = r.Rstate.View //last known normal View
+		}
 		r.Rstate.View = args.View
 		r.Rstate.Status = ViewChange
 
@@ -97,9 +102,17 @@ func (t *RPCReplica) StartViewChange(args *StartViewChangeArgs, reply *int) erro
 	}
 
 	//if we have recieved enough StartViewChange messages send DoViewChange to new master
-	if r.Vcstate.StartViews == F && !r.IsMaster() {
+	if r.Vcstate.StartViews == F {
 		r.Debug(STATUS, "Sending DoViewChange")
 		r.Debug(STATUS, "Sending to: %d\n", r.Rstate.View%NREPLICAS)
+
+		if r.Rstate.View%NREPLICAS == r.Rstate.ReplicaNumber {
+			r.Debug(STATUS, "Implicitly sending DoViewChange to myself")
+			r.Vcstate.DoViews++
+			r.Vcstate.DoViewChangeMsgs[r.Rstate.ReplicaNumber] = DoViewChangeArgs{r.Rstate.View, r.Rstate.ReplicaNumber,
+				r.Phatlog, r.Vcstate.NormalView, r.Rstate.OpNumber, r.Rstate.CommitNumber}
+			return nil
+		}
 
 		//DoViewChange args
 		DVCargs := DoViewChangeArgs{r.Rstate.View, r.Rstate.ReplicaNumber,
@@ -115,6 +128,8 @@ func (t *RPCReplica) StartViewChange(args *StartViewChangeArgs, reply *int) erro
 func (t *RPCReplica) DoViewChange(args *DoViewChangeArgs, reply *int) error {
 	r := t.R
 
+	// TODO: should probably drop the request if view number doesn't match up
+
 	//already recieved a message from this replica
 	if ((1 << args.ReplicaNumber) & r.Vcstate.DoViewReplies) != 0 {
 		return nil
@@ -125,11 +140,12 @@ func (t *RPCReplica) DoViewChange(args *DoViewChangeArgs, reply *int) error {
 	r.Vcstate.DoViewChangeMsgs[args.ReplicaNumber] = *args
 	r.Debug(STATUS, "DoViewChange")
 
-	//We have recived enough DoViewChange messages
-	if r.Vcstate.DoViews == F {
+	//We have recived enough DoViewChange messages (this could include ourself)
+	if r.Vcstate.DoViews == F+1 {
 		r.Debug(STATUS, "PrepareStartView")
 		//updates replica state based on replies
 		r.calcMasterView()
+		r.resetVcstate()
 
 		r.Rstate.Status = Normal
 		// TODO: we don't technically have a master lease at this point
@@ -158,7 +174,6 @@ func (t *RPCReplica) StartView(args *DoViewChangeArgs, reply *PrepareReply) erro
 	r.doCommit(args.CommitNumber)
 	assert(r.Rstate.CommitNumber == args.CommitNumber)
 	r.Rstate.Status = Normal
-	r.Rstate.ExtendLease(time.Now().Add(LEASE))
 
 	r.resetVcstate()
 	r.Debug(STATUS, "ViewChangeComplete!")
@@ -173,8 +188,6 @@ func (t *RPCReplica) StartView(args *DoViewChangeArgs, reply *PrepareReply) erro
 // calcMasterView updates the new Master's state in accordance with its quorum of received
 // DoViewChange Messages
 func (r *Replica) calcMasterView() {
-	r.Rstate.View = r.Vcstate.DoViewChangeMsgs[0].View
-
 	var maxView uint = 0
 	var maxCommit uint = 0
 	var bestRep = DoViewChangeArgs{}
@@ -186,8 +199,10 @@ func (r *Replica) calcMasterView() {
 		maxView = Max(maxView, DVCM.View)
 		maxCommit = Max(maxCommit, DVCM.CommitNumber)
 
+		r.Debug(DEBUG, "doviewchangemessage:  %+v", DVCM)
+
 		//choose replica with highest (NormalView, OpNumber) pair to determine log
-		if DVCM.NormalView >= bestRep.NormalView && DVCM.OpNumber > bestRep.OpNumber {
+		if DVCM.NormalView > bestRep.NormalView || (DVCM.NormalView == bestRep.NormalView && DVCM.OpNumber > bestRep.OpNumber) {
 			bestRep = DVCM
 		}
 	}
