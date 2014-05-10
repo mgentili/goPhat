@@ -47,9 +47,9 @@ func (mq *MessageQueue) RecoverLog(logEntries []LogEntry) {
         log.Println("%v", entry)
         switch entry.Command {
             case "PUSH":
-                mq.Push(entry.Message)
+                mq.ReplayPush(entry.Message)
             case "POP":
-                mq.Pop()
+                mq.ReplayPop()
             }
     }
 }
@@ -71,6 +71,26 @@ func (mq *MessageQueue) Pop() *QMessage {
 	// Until then, this is equivalent to a memory leak
 	//mq.inProgress[qmesg.MessageID] = qmesg
     mq.BackupLog(LogEntry{Command:"POP"})
+	return &qm
+}
+
+//ReplayPush/Pop modify the queue in the same way, but do not add to
+//logging file (since they are already there!)
+func (mq *MessageQueue) ReplayPush(v interface{}) {
+	qm := QMessage{strconv.Itoa(mq.NextID()), v}
+	mq.Queue.PushBack(qm)
+}
+
+func (mq *MessageQueue) ReplayPop() *QMessage {
+	if mq.Len() == 0 {
+		return nil
+	}
+	e := mq.Queue.Front()
+	qm := e.Value.(QMessage)
+	mq.Queue.Remove(e)
+	// TODO: When we actually care about "in progress" messages
+	// Until then, this is equivalent to a memory leak
+	//mq.inProgress[qmesg.MessageID] = qmesg
 	return &qm
 }
 
