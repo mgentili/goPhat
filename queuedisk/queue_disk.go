@@ -6,7 +6,6 @@ import "bytes"
 import "os"
 import "encoding/gob"
 import "encoding/binary"
-import "log"
 import "github.com/mgentili/goPhat/phatlog"
 
 var queue_file = "queue.bin"
@@ -44,7 +43,6 @@ func (mq *MessageQueue) NextID() int {
 
 func (mq *MessageQueue) RecoverLog(logEntries []LogEntry) {
     for _, entry := range logEntries {
-        log.Println("%v", entry)
         switch entry.Command {
             case "PUSH":
                 mq.ReplayPush(entry.Message)
