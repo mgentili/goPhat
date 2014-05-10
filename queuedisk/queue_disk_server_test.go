@@ -16,4 +16,7 @@ func TestQServer(t *testing.T) {
 		input <- pushCmd
 		<-pushCmd.Done
 	}
+    popCmd := QCommandWithChannel{&QCommand{"POP", ""}, make(chan *QResponse)}
+    input <- popCmd
+    <-popCmd.Done
 }
