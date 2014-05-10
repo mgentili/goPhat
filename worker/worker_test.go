@@ -2,7 +2,7 @@ package worker
 
 import (
 	"fmt"
-	"github.com/mgentili/goPhat/queuedisk"
+	queue "github.com/mgentili/goPhat/queuedisk"
 	"github.com/mgentili/goPhat/queueRPC"
 	"github.com/mgentili/goPhat/vr"
 	"log"
@@ -40,7 +40,7 @@ func TestClientConnection(t *testing.T) {
 	if err != nil {
 		t.Errorf(fmt.Sprintf("Expected no error from pop, got %s"), err)
 	}
-	msg := res.Reply.(queuedisk.QMessage).Value.(string)
+	msg := res.Reply.(queue.QMessage).Value.(string)
 
 	if "hello" != msg {
 		t.Errorf(fmt.Sprintf("Expected %s, got %s", "hello", msg))
@@ -60,14 +60,14 @@ func Test10k(b *testing.T) {
 		newReplica := vr.RunAsReplica(uint(i), replica_config)
 		queueRPC.StartServer(client_config[i], newReplica)
 	}
-	time.Sleep(time.Second)
+	time.Sleep(3*time.Second)
 	cli, err := NewWorker(client_config, 1, "w1")
 	if err != nil {
 		b.Errorf(err.Error())
 	}
 	//
 	start := time.Now()
-	for n := 0; n < 1000; n++ {
+	for n := 0; n < 10000; n++ {
 		testString := fmt.Sprintf("hello-%d", n)
 		err = cli.Push(testString)
 		if err != nil {
@@ -78,7 +78,7 @@ func Test10k(b *testing.T) {
 		if err != nil {
 			b.Errorf(err.Error())
 		}
-		msg := res.Reply.(queuedisk.QMessage).Value.(string)
+		msg := res.Reply.(queue.QMessage).Value.(string)
 		if testString != msg {
 			b.Errorf("Expected %s but received %s", testString, msg)
 		}

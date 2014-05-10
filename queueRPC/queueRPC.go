@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/mgentili/goPhat/level_log"
-	"github.com/mgentili/goPhat/queuedisk"
+	queue "github.com/mgentili/goPhat/queuedisk"
 	"github.com/mgentili/goPhat/vr"
 	"net"
 	"net/rpc"
@@ -18,33 +18,33 @@ var server_log *level_log.Logger
 
 type Server struct {
 	ReplicaServer *vr.Replica
-	InputChan     chan queuedisk.QCommandWithChannel
+	InputChan     chan queue.QCommandWithChannel
 	ClientTable   map[string]ClientTableEntry
 }
 
 type ClientTableEntry struct {
 	SeqNumber uint
-	Response  *queuedisk.QResponse
+	Response  *queue.QResponse
 }
 
 type ClientCommand struct {
 	Uid       string
 	SeqNumber uint
-	Command   *queuedisk.QCommand
+	Command   *queue.QCommand
 }
 
 type Null struct{}
 
 // wraps a DB command to conform to the vr.Command interface
 type CommandFunctor struct {
-	Command queuedisk.QCommandWithChannel
+	Command queue.QCommandWithChannel
 }
 
 func (c CommandFunctor) CommitFunc(context interface{}) {
 	server := context.(*Server)
 	argsWithChannel := c.Command
 	// we make our own QCommandWithChannel so we (VR) can make sure the DB has committed before continuing on
-	newArgsWithChannel := queuedisk.QCommandWithChannel{argsWithChannel.Cmd, make(chan *queuedisk.QResponse)}
+	newArgsWithChannel := queue.QCommandWithChannel{argsWithChannel.Cmd, make(chan *queue.QResponse)}
 	server.InputChan <- newArgsWithChannel
 	// wait til the DB has actually committed the transaction
 	result := <-newArgsWithChannel.Done
@@ -63,9 +63,9 @@ func (s *Server) debug(level int, format string, args ...interface{}) {
 
 // startDB starts the queue for the server
 func (s *Server) startQueue() {
-	input := make(chan queuedisk.QCommandWithChannel)
+	input := make(chan queue.QCommandWithChannel)
 	s.InputChan = input
-	go queuedisk.QueueServer(input)
+	go queue.QueueServer(input)
 }
 
 func SetupLog() {
@@ -101,9 +101,9 @@ func StartServer(address string, replica *vr.Replica) (*rpc.Server, error) {
 	// as a generic interface{} (I don't understand the details that well,
 	// see http://stackoverflow.com/questions/21934730/gob-type-not-registered-for-interface-mapstringinterface)
 	gob.Register(CommandFunctor{})
-	gob.Register(queuedisk.QCommandWithChannel{})
+	gob.Register(queue.QCommandWithChannel{})
 	// Need to register all types that are returned within the QResponse
-	gob.Register(queuedisk.QMessage{})
+	gob.Register(queue.QMessage{})
 
 	serve.debug(DEBUG, "Server at %s trying to accept new client connections\n", address)
 	go newServer.Accept(listener)
@@ -140,7 +140,7 @@ func (s *Server) GetMaster(args *Null, reply *uint) error {
 	return nil
 }
 
-func (s *Server) checkClientTable(args *ClientCommand) (*queuedisk.QResponse, error) {
+func (s *Server) checkClientTable(args *ClientCommand) (*queue.QResponse, error) {
 	if res, ok := s.ClientTable[args.Uid]; ok {
 		if args.SeqNumber < res.SeqNumber || res.Response == nil {
 			return nil, errors.New("Old Request")
@@ -153,7 +153,7 @@ func (s *Server) checkClientTable(args *ClientCommand) (*queuedisk.QResponse, er
 	return nil, nil
 }
 
-func (s *Server) Send(args *ClientCommand, reply *queuedisk.QResponse) error {
+func (s *Server) Send(args *ClientCommand, reply *queue.QResponse) error {
 
 	// check to make sure that server receiving client RPC is the master
 	// and is in Normal condition
@@ -174,7 +174,7 @@ func (s *Server) Send(args *ClientCommand, reply *queuedisk.QResponse) error {
 	// place a new "in progress" (nil) entry in the client table
 	s.ClientTable[args.Uid] = ClientTableEntry{args.SeqNumber, nil}
 
-	argsWithChannel := queuedisk.QCommandWithChannel{args.Command, make(chan *queuedisk.QResponse, 1)}
+	argsWithChannel := queue.QCommandWithChannel{args.Command, make(chan *queue.QResponse, 1)}
 
 	paxos := false
 	if paxos {
