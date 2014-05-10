@@ -5,7 +5,6 @@ import "io/ioutil"
 import "encoding/gob"
 import "encoding/binary"
 import "bytes"
-import "log"
 
 type QCommand struct {
 	Command string
@@ -54,7 +53,6 @@ func QueueServer(input chan QCommandWithChannel) {
 		r, err = ioutil.ReadFile(queue_file)
         logEntries := ParseLogFile(r)
         mq.RecoverLog(logEntries)
-        log.Println("%v,", mq.Len())
 	}
 
 	// Enter the command loop
