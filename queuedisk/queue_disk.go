@@ -26,14 +26,14 @@ type MessageQueue struct {
 	Id              int
     Log *phatlog.Log
 	backup_filename string
+    filePtr *os.File
 }
 
 func (mq *MessageQueue) Init() {
 	mq.inProgress = make(map[string]QMessage)
 	mq.backup_filename = queue_file
 	mq.Log = phatlog.EmptyLog()
-    f,_  := os.OpenFile(mq.backup_filename, os.O_CREATE, 0666)
-    defer f.Close()
+    mq.filePtr, _  = os.OpenFile(mq.backup_filename, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0666)
 }
 
 func (mq *MessageQueue) NextID() int {
@@ -107,12 +107,10 @@ func (mq *MessageQueue) LenInProgress() int {
 
 //write copy of log to disk
 func (mq *MessageQueue) BackupLog(logentry LogEntry) error {
-    f, err := os.OpenFile(mq.backup_filename, os.O_RDWR|os.O_APPEND, 0666)
-    defer f.Close()
     gob.Register(LogEntry{})
     w := new(bytes.Buffer)
     encoder := gob.NewEncoder(w)
-    err = encoder.Encode(logentry)
+    err := encoder.Encode(logentry)
 
     if err != nil {
 		return err
@@ -121,16 +119,16 @@ func (mq *MessageQueue) BackupLog(logentry LogEntry) error {
     //write the size of the Logentry to the file
     bs := make([]byte, 4)
     binary.LittleEndian.PutUint32(bs, uint32(len(w.Bytes())))
-    _, err = f.Write(bs)
+    _, err = mq.filePtr.Write(bs)
 
     //write the LogEntry to the file
-    _, err = f.Write(w.Bytes())
+    _, err = mq.filePtr.Write(w.Bytes())
 
 	if err != nil {
 		return err
 	}
 
-    f.Sync()
+    mq.filePtr.Sync()
 
 	return nil
 }

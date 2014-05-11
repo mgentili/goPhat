@@ -21,6 +21,7 @@ type QCommandWithChannel struct {
 	Done chan *QResponse
 }
 
+//parses the binary log file into log entries
 func ParseLogFile(buffer []byte) []LogEntry {
     gob.Register(LogEntry{})
     logEntries := []LogEntry{}
