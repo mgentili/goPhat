@@ -18,7 +18,10 @@ type GetStateResponse struct {
 
 //A replica notices that it needs a recovery
 func (r *Replica) StartStateTransfer() {
-	assert(r.Rstate.Status == Normal)
+
+	if (r.Rstate.Status != Normal) {
+		return
+	}
 
 	r.Debug(STATUS, "Starting State Transfer")
 
@@ -50,7 +53,10 @@ func (t *RPCReplica) GetState(args *GetStateArgs, reply *GetStateResponse) error
 func (r *Replica) handleGetStateResponse(reply *GetStateResponse) bool {
 	r.Debug(STATUS, "Got NewState")
 
-	assert(reply.View == r.Rstate.View)
+	if (reply.View != r.Rstate.View) {
+		return true
+	}
+
 	r.Phatlog = reply.Log
 	r.Rstate.OpNumber = reply.OpNumber
 	r.doCommit(reply.CommitNumber)

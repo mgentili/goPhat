@@ -389,11 +389,14 @@ func (r *Replica) doCommit(cn uint) {
 		return
 	} else if cn > r.Rstate.OpNumber {
 		r.Debug(STATUS, "need to do state transfer. only at op %d in log but got commit for %d\n", r.Rstate.OpNumber, cn)
-		r.PrepareRecovery()
+		r.CommitLock.Unlock()
+		needsUnlock = false
+		r.StartStateTransfer()
 		return
 	} else if cn > r.Rstate.CommitNumber+1 {
 		r.Debug(STATUS, "need to do extra commits to commit to %d", cn)
 		r.CommitLock.Unlock()
+		needsUnlock = false
 		// we're behind (but have all the log entries, so don't need to state
 		// transfer), so catch up by committing up to the current commit
 		// we also recursively commit the *current* (cn) commit. this is because we're releasing
@@ -402,7 +405,7 @@ func (r *Replica) doCommit(cn uint) {
 		for i := r.Rstate.CommitNumber + 1; i <= cn; i++ {
 			r.doCommit(i)
 		}
-		needsUnlock = false
+		//needsUnlock = false
 		return
 	}
 	assert(cn == r.Rstate.CommitNumber+1)
