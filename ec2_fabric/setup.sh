@@ -1,6 +1,4 @@
-#!/bin/sh
-
-sudo yum install golang
+#!/bin/bash
 
 mkdir -p $HOME/gopath/src
 
@@ -16,7 +14,5 @@ if ! grep -q 'GOPATH/bin' $HOME/.bash_profile ; then
 	source $HOME/.bash_profile
 fi
 
-mkdir -p $GOPATH/src/github.com/mgentili
-cd $GOPATH/src/github.com/mgentili
-sudo rm -rf goPhat
-git clone git://github.com/mgentili/goPhat
+go get github.com/mgentili/goPhat/benchmarks/qserver
+go get github.com/mgentili/goPhat/benchmarks/qworker
