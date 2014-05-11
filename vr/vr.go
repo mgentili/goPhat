@@ -60,6 +60,7 @@ type Replica struct {
 	Codecs     []*GobServerCodec
 
 	SnapshotFunc func(interface{}, func() uint) ([]byte, uint, error)
+    LoadSnapshotFunc func(interface{}, []byte) (error)
 	// ensure only one snapshot at a time
 	SnapshotLock sync.Mutex
 	// index of last snapshot

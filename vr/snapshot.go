@@ -10,7 +10,7 @@ func (r *Replica) LoadSnapshotFromDisk() {
     f, err := os.Open(r.SnapshotFile)
     defer func() {
         if err != nil { r.Debug(ERROR, err.Error()); }
-    }
+    }()
     if err != nil {
         return
     }
@@ -21,13 +21,13 @@ func (r *Replica) LoadSnapshotFromDisk() {
         return
     }
     buf := make([]byte, fileinfo.Size())
-    n, err := f.Read(snapBytes)
+    n, err := f.Read(buf)
     if err != nil { return }
-    assert(n==fileinfo.Size())
+    assert(int64(n)==fileinfo.Size())
 
     snapIndex := binary.LittleEndian.Uint64(buf[:8])
 
-    r.LoadSnapshot(buf[8:], snapIndex)
+    r.LoadSnapshot(buf[8:], uint(snapIndex))
 }
 
 func (r *Replica) LoadSnapshot(data []byte, snapIndex uint) {
