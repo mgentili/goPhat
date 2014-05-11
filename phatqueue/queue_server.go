@@ -4,6 +4,10 @@ import (
 	"fmt"
 )
 
+const (
+	USE_COPY_ON_WRITE = true
+)
+
 type QCommand struct {
 	Command string
 	Value   interface{}
@@ -64,13 +68,26 @@ func QueueServer(input chan QCommandWithChannel) {
 		case "SNAPSHOT":
 			// need to ask for the index here, to guarantee it's the current one
 			index := req.Value.(func() uint)()
-			// TODO: set copyOnWrite and do this in the background
-			bytes, err := mq.Bytes()
-			if err != nil {
-				resp.Error = err.Error()
-			} else {
-				resp.Reply = QSnapshot{bytes, index}
+
+			encodeFunc := func() {
+				mq_snap := mq
+				bytes, err := mq_snap.Bytes()
+				if err != nil {
+					resp.Error = err.Error()
+				} else {
+					resp.Reply = QSnapshot{bytes, index}
+				}
+				request.Done <- resp
+				copyOnWrite = false
 			}
+
+			if USE_COPY_ON_WRITE {
+				copyOnWrite = true
+				go encodeFunc()
+			} else {
+				encodeFunc()
+			}
+			continue
 		default:
 			resp.Error = "Unknown command"
 		}

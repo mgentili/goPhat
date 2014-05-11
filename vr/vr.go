@@ -29,7 +29,8 @@ const (
 	BACKOFF_TIME = 10 * time.Millisecond
 
 	// start off with very frequent snapshots
-	SNAP_FREQ = 10
+	SNAP_FREQ     = 100
+	SNAPSHOT_FILE = "snapshot%d.snap" // %d==replica number
 )
 
 // a replica's possible states
@@ -289,7 +290,7 @@ func RunAsReplica(i uint, config []string) *Replica {
 	F = (NREPLICAS - 1) / 2
 	r := new(Replica)
 	r.Rstate.ReplicaNumber = i
-	r.SnapshotFile = fmt.Sprintf("snapshot%d.snap", i)
+	r.SnapshotFile = fmt.Sprintf(SNAPSHOT_FILE, i)
 	r.Config = config
 	r.Conns = make([]*rpc.Client, NREPLICAS)
 
@@ -408,11 +409,11 @@ func (r *Replica) doCommit(cn uint) {
 	vrCommand.C.CommitFunc(r.Context)
 	r.Rstate.CommitNumber++
 	r.Debug(DEBUG, "committed: %d", r.Rstate.CommitNumber)
-	if vrCommand.Done != nil {
-		vrCommand.Done <- 0
-	}
 	if (r.Rstate.CommitNumber % SNAP_FREQ) == SNAP_FREQ-1 {
 		go r.TakeSnapshot()
+	}
+	if vrCommand.Done != nil {
+		vrCommand.Done <- 0
 	}
 }
 

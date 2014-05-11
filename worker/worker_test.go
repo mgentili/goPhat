@@ -60,7 +60,7 @@ func Test10k(b *testing.T) {
 		newReplica := vr.RunAsReplica(uint(i), replica_config)
 		queueRPC.StartServer(client_config[i], newReplica)
 	}
-	time.Sleep(3*time.Second)
+	time.Sleep(3 * time.Second)
 	cli, err := NewWorker(client_config, 1, "w1")
 	if err != nil {
 		b.Errorf(err.Error())

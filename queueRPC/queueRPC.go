@@ -16,6 +16,7 @@ const DEBUG = 0
 
 var server_log *level_log.Logger
 var paxos = true
+
 type Server struct {
 	ReplicaServer *vr.Replica
 	InputChan     chan queue.QCommandWithChannel
