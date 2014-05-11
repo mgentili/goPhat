@@ -29,6 +29,19 @@ func (mq *MessageQueue) NextID() int {
 	return mq.Id
 }
 
+func (mq *MessageQueue) Copy() (newmq *MessageQueue) {
+    newmq = new(MessageQueue)
+    newmq.Init()
+
+    // newmq.queue is initially empty so this effectively copies mq.queue to it
+    copy(newmq.Queue, mq.Queue)
+    for k, v := range mq.InProgress {
+        newmq.InProgress[k] = v
+    }
+    newmq.Id = mq.Id
+    return
+}
+
 func (mq *MessageQueue) Push(v interface{}) {
 	qm := QMessage{strconv.Itoa(mq.NextID()), v}
 	mq.Queue = append(mq.Queue, qm)
