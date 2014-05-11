@@ -51,7 +51,7 @@ func main() {
 	serverPaths := strings.Fields(*rawServerPaths)
 
 	ip, _ := localIP()
-	log.Println('My IP address is', ip)
+	log.Println("My IP address is", ip)
 
 	// Work out which address this server should use
 	// If we're not local, use our IP address
