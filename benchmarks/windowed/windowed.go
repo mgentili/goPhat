@@ -12,8 +12,8 @@ import (
 )
 
 type Times struct {
-	startTime time.Time
-	duration time.Duration
+	StartTime time.Time
+	Duration time.Duration
 }
 
 type WorkerRequests struct {
@@ -27,11 +27,12 @@ type WorkerRequests struct {
 var Requests WorkerRequests
 
 func makeCall(requestNum int) {
+	log.Printf("In make call with requestNum %d", requestNum)
 	start := time.Now()
 	Requests.Worker.Push("work")
 	end := time.Since(start)
 	Requests.RequestTimes[requestNum] = Times{start, end}
-	Requests.RequestChan <- 1
+	Requests.RequestChan <- requestNum
 }
 //sends specified number of messages to server, with a designated window size
 func RunTest() {
@@ -40,19 +41,26 @@ func RunTest() {
 	sent := 0
 	// make initial windowSize calls
 	for i := 0 ; i < Requests.WindowSize ; i++ {
-		go makeCall(sent)
+		curr := sent
+		go makeCall(curr)
 		sent++
 	}
 
 	//every time there's a response on the channel, take it off and make a new async call
 	received := 0
-	for received < Requests.NumMessages {
+	for {
 		select {
-		case <-Requests.RequestChan:
+		case c := <-Requests.RequestChan:
 			received++
-			log.Printf("Received response for message %d", received)
-			go makeCall(sent)
-			sent++
+			log.Printf("Received response for message %d", c)
+			if (sent < Requests.NumMessages) {
+				curr := sent
+				go makeCall(curr)
+				sent++	
+			}
+			if (received == Requests.NumMessages) {
+				return
+			}
 		}
 	}
 }
@@ -71,16 +79,19 @@ func main() {
     Requests.RequestTimes = make([]Times, *nM)
     Requests.RequestChan = make(chan int, *wS)
 
+    fmt.Printf("Num Messages: %d, Window Size: %d\n",
+    	Requests.NumMessages, Requests.WindowSize)
+
     var err error
     Requests.Worker, err = worker.NewWorker(strings.Fields(*s), *id, *uid)
     if (err != nil) {
     	log.Printf("Failed to create worker with error %v", err)
     }
     RunTest()
-    
 
-    fmt.Printf("Num Messages: %d, Window Size: %d\n",
-    	Requests.NumMessages, Requests.WindowSize)
+    start := Requests.RequestTimes[0].StartTime
+    for i, v := range(Requests.RequestTimes) {
+    	log.Printf("Request %d: Started at: %v, Duration: %v", i, v.StartTime.Sub(start), v.Duration)
+    }
 
-    RunTest()
 }

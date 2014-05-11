@@ -15,7 +15,7 @@ import (
 const DEBUG = 0
 
 var server_log *level_log.Logger
-
+var paxos = true
 type Server struct {
 	ReplicaServer *vr.Replica
 	InputChan     chan queue.QCommandWithChannel
@@ -71,14 +71,14 @@ func SnapshotFunc(context interface{}, SnapshotHandle func() uint) ([]byte, uint
 }
 
 func (s *Server) debug(level int, format string, args ...interface{}) {
-	return
+	//return
 	str := fmt.Sprintf("%d: %s", s.ReplicaServer.Rstate.ReplicaNumber, format)
 	server_log.Printf(level, str, args...)
 }
 
 // startDB starts the queue for the server
 func (s *Server) startQueue() {
-	input := make(chan queue.QCommandWithChannel)
+	input := make(chan queue.QCommandWithChannel, 1000)
 	s.InputChan = input
 	go queue.QueueServer(input)
 }
@@ -170,13 +170,15 @@ func (s *Server) checkClientTable(args *ClientCommand) (*queue.QResponse, error)
 }
 
 func (s *Server) Send(args *ClientCommand, reply *queue.QResponse) error {
-
 	// check to make sure that server receiving client RPC is the master
 	// and is in Normal condition
 	if err := s.checkState(); err != nil {
 		return err
 	}
-	//s.debug(DEBUG, "Received message with %v", args)
+	
+	s.debug(DEBUG, "Received message with %v", args)
+	
+	/*
 	// check to see if client has already sent this request before
 	res, err := s.checkClientTable(args)
 	if err != nil {
@@ -189,10 +191,10 @@ func (s *Server) Send(args *ClientCommand, reply *queue.QResponse) error {
 
 	// place a new "in progress" (nil) entry in the client table
 	s.ClientTable[args.Uid] = ClientTableEntry{args.SeqNumber, nil}
+	*/
 
 	argsWithChannel := queue.QCommandWithChannel{args.Command, make(chan *queue.QResponse, 1)}
 
-	paxos := false
 	if paxos {
 		s.ReplicaServer.RunVR(CommandFunctor{argsWithChannel})
 	} else {
@@ -201,7 +203,8 @@ func (s *Server) Send(args *ClientCommand, reply *queue.QResponse) error {
 	result := <-argsWithChannel.Done
 	*reply = *result
 	// place the response entry into the client table
-	s.ClientTable[args.Uid] = ClientTableEntry{s.ClientTable[args.Uid].SeqNumber, reply}
+	// s.ClientTable[args.Uid] = ClientTableEntry{s.ClientTable[args.Uid].SeqNumber, reply}
 
 	return nil
 }
+	
