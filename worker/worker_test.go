@@ -2,7 +2,7 @@ package worker
 
 import (
 	"fmt"
-	queue "github.com/mgentili/goPhat/queuedisk"
+	queue "github.com/mgentili/goPhat/phatqueue"
 	"github.com/mgentili/goPhat/queueRPC"
 	"github.com/mgentili/goPhat/vr"
 	"log"

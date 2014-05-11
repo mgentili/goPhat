@@ -4,7 +4,7 @@ import (
 	//	"encoding/gob"
 	"errors"
 	"github.com/mgentili/goPhat/client"
-	queue "github.com/mgentili/goPhat/queuedisk"
+	queue "github.com/mgentili/goPhat/phatqueue"
 	"github.com/mgentili/goPhat/queueRPC"
 )
 

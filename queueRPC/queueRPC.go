@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/mgentili/goPhat/level_log"
-	queue "github.com/mgentili/goPhat/queuedisk"
+	queue "github.com/mgentili/goPhat/phatqueue"
 	"github.com/mgentili/goPhat/vr"
 	"net"
 	"net/rpc"
@@ -55,6 +55,21 @@ func (c CommandFunctor) CommitFunc(context interface{}) {
 	}
 }
 
+func SnapshotFunc(context interface{}, SnapshotHandle func() uint) ([]byte, uint, error) {
+	s := context.(*Server)
+	command := &queue.QCommand{"SNAPSHOT", SnapshotHandle}
+
+	argsWithChannel := queue.QCommandWithChannel{command, make(chan *queue.QResponse)}
+	s.InputChan <- argsWithChannel
+
+	result := <-argsWithChannel.Done
+	if result.Error != "" {
+		return nil, 0, errors.New(result.Error)
+	}
+	snapshot := result.Reply.(queue.QSnapshot)
+	return snapshot.Data, snapshot.SnapshotIndex, nil
+}
+
 func (s *Server) debug(level int, format string, args ...interface{}) {
 	return
 	str := fmt.Sprintf("%d: %s", s.ReplicaServer.Rstate.ReplicaNumber, format)
@@ -90,6 +105,7 @@ func StartServer(address string, replica *vr.Replica) (*rpc.Server, error) {
 	serve.ClientTable = make(map[string]ClientTableEntry)
 	serve.startQueue()
 	replica.Context = serve
+	replica.SnapshotFunc = SnapshotFunc
 
 	newServer := rpc.NewServer()
 	err = newServer.Register(serve)
