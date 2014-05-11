@@ -205,9 +205,6 @@ func (r *Replica) RunVR(command Command) {
 	assert(r.IsMaster())
 	r.Mstate.RunVRLock.Lock()
 
-	// TODO: it'd probably be better to just keep a map from replica id to latest ack'd op number (a la raft)
-	r.Mstate.Reset()
-
 	vrCommand := VRCommand{command, make(chan int)}
 
 	r.addLog(vrCommand)
@@ -226,16 +223,23 @@ func (r *Replica) RunVR(command Command) {
 	r.Debug(DEBUG, "Finished RunVR")
 }
 
+func (r *Replica) calcHighestMajorityOp() uint {
+	assert(r.IsMaster())
+	sortedOps := SortUints(r.Mstate.HighestOp)
+
+	lowestMajority := len(sortedOps) - int(F)
+	if lowestMajority < 0 {
+		// not enough responses to commit anything
+		return 0
+	}
+	return sortedOps[lowestMajority]
+}
+
 func (r *Replica) handlePrepareOK(reply *PrepareReply) bool {
 	r.Debug(DEBUG, "got response: %+v\n", reply)
 
 	// no longer master, we don't care about this prepare anymore
 	if !r.IsMaster() {
-		return true
-	}
-
-	if reply.OpNumber <= r.Rstate.CommitNumber {
-		r.Debug(STATUS, "Got reply for op %d, which we've already committed", reply.OpNumber)
 		return true
 	}
 
@@ -245,33 +249,23 @@ func (r *Replica) handlePrepareOK(reply *PrepareReply) bool {
 
 	r.Heartbeat(reply.ReplicaNumber, reply.Lease)
 
-	if reply.OpNumber != r.Rstate.OpNumber {
-		return false
+	if reply.OpNumber > r.Mstate.HighestOp[reply.ReplicaNumber] {
+		r.Mstate.HighestOp[reply.ReplicaNumber] = reply.OpNumber
 	}
-
-	if ((1 << reply.ReplicaNumber) & r.Mstate.Replies) != 0 {
-		return false
-	}
-
-	r.Debug(DEBUG, "got suitable response\n")
-
-	r.Mstate.Replies |= 1 << reply.ReplicaNumber
-	r.Mstate.A++
 
 	r.Debug(DEBUG, "new master state: %v\n", r.Mstate)
 
-	// only need F responses (we implicitly got one from ourselves)
-	if r.Mstate.A != F {
-		return r.Mstate.A >= F
-	}
+	highCommit := r.calcHighestMajorityOp()
 
-	// we've now gotten a majority
-	r.doCommit(r.Rstate.OpNumber)
+	if highCommit > r.Rstate.CommitNumber {
+		// we've now gotten a majority
+		r.doCommit(highCommit)
+	}
 
 	// TODO: we shouldn't really need to do this (only on periods of inactivity)
 	r.sendCommitMsgs()
 
-	return true
+	return highCommit >= reply.OpNumber
 }
 
 func (r *Replica) sendCommitMsgs() {

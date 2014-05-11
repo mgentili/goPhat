@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"runtime"
+	"sort"
 	"time"
 )
 
@@ -20,7 +21,7 @@ var VR_log *level_log.Logger
 
 func SetupVRLog() {
 	if VR_log == nil {
-		levelsToLog := []int{}
+		levelsToLog := []int{DEBUG, STATUS}
 		VR_log = level_log.NewLL(os.Stdout, "VR: ")
 		VR_log.SetLevelsToLog(levelsToLog)
 	}
@@ -39,7 +40,7 @@ func wrongView() error {
 }
 
 func (r *Replica) Debug(level int, format string, args ...interface{}) {
-	return
+	//return
 	str := fmt.Sprintf("r%d: %s, %s", r.Rstate.ReplicaNumber, r.replicaStateInfo(), format)
 	VR_log.Printf(level, str, args...)
 }
@@ -59,8 +60,7 @@ func (r *Replica) GetMasterId() uint {
 }
 
 func (mstate *MasterState) Reset() {
-	mstate.A = 0
-	mstate.Replies = 0
+	mstate.HighestOp = map[uint]uint{}
 	mstate.Heartbeats = map[uint]time.Time{}
 }
 
@@ -149,4 +149,21 @@ func Max(a, b uint) uint {
 		return b
 	}
 	return a
+}
+
+type ByOpNumber []uint
+
+func (a ByOpNumber) Len() int           { return len(a) }
+func (a ByOpNumber) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a ByOpNumber) Less(i, j int) bool { return a[i] < a[j] }
+
+func SortUints(uints map[uint]uint) []uint {
+	vals := make([]uint, len(uints))
+	i := 0
+	for _, v := range uints {
+		vals[i] = v
+		i++
+	}
+	sort.Sort(ByOpNumber(vals))
+	return vals
 }
