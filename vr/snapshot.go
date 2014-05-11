@@ -2,6 +2,7 @@ package vr
 
 import (
 	"encoding/binary"
+	"fmt"
 	"os"
 )
 
@@ -14,7 +15,10 @@ type Snapshot struct {
 func (r *Replica) TakeSnapshot() {
 	r.SnapshotLock.Lock()
 	defer r.SnapshotLock.Unlock()
-	assert(r.Rstate.CommitNumber > r.SnapshotIndex)
+	r.Debug(STATUS, "Taking snapshot of roughly %d (current snapshot is %d)", r.Rstate.CommitNumber, r.SnapshotIndex)
+	if r.Rstate.CommitNumber <= r.SnapshotIndex {
+		return
+	}
 	bytes, snapIndex, err := r.SnapshotFunc(r.Context, func() uint { return r.Rstate.CommitNumber })
 	defer func() {
 		if err != nil {
@@ -24,7 +28,9 @@ func (r *Replica) TakeSnapshot() {
 	if err != nil {
 		return
 	}
-	f, err := os.Create(r.SnapshotFile)
+	// we first write to a temp file, then move it into the real location (so it happens atomically)
+	tmpfile := fmt.Sprintf("%s.tmp", r.SnapshotFile)
+	f, err := os.Create(tmpfile)
 	if err != nil {
 		return
 	}
@@ -43,7 +49,10 @@ func (r *Replica) TakeSnapshot() {
 	if err != nil {
 		return
 	}
+	err = os.Rename(tmpfile, r.SnapshotFile)
+	if err != nil {
+		return
+	}
 	// TODO: compaction
 	r.SnapshotIndex = snapIndex
-
 }

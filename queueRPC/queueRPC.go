@@ -192,7 +192,7 @@ func (s *Server) Send(args *ClientCommand, reply *queue.QResponse) error {
 
 	argsWithChannel := queue.QCommandWithChannel{args.Command, make(chan *queue.QResponse, 1)}
 
-	paxos := false
+	paxos := true
 	if paxos {
 		s.ReplicaServer.RunVR(CommandFunctor{argsWithChannel})
 	} else {

@@ -20,7 +20,7 @@ var VR_log *level_log.Logger
 
 func SetupVRLog() {
 	if VR_log == nil {
-		levelsToLog := []int{STATUS, ERROR}
+		levelsToLog := []int{}
 		VR_log = level_log.NewLL(os.Stdout, "VR: ")
 		VR_log.SetLevelsToLog(levelsToLog)
 	}
@@ -39,6 +39,7 @@ func wrongView() error {
 }
 
 func (r *Replica) Debug(level int, format string, args ...interface{}) {
+	return
 	str := fmt.Sprintf("r%d: %s, %s", r.Rstate.ReplicaNumber, r.replicaStateInfo(), format)
 	VR_log.Printf(level, str, args...)
 }
