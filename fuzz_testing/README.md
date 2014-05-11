@@ -2,17 +2,17 @@ Fuzz Testing (Work in Progress)
 ======
 
 Make sure that `goPhat/fuzz_testing/fuzz_testing_exec.go` has been installed.
+Modifying `install.sh` should be sufficient and will be run each time.
 
-From the `fuzz_testing` directory, run the following on the command line
+From the `fuzz_testing` directory, run the following on the command line:
 
-    go install
-    fuzz_testing --path [filename]
+    ./start 2m_o
 
-where [filename] is the name of the file that contains the randomly generated
-data to be used for the test. The first line should be the number of replicas
-to create, and each following line should be
-an integer between 0 and 30. Currently only killing a replica (&lt;10), stopping
-a replica (&lt;20), and putting data work.
+Nodes will automatically be started and stopped according to the test spec.
 
-To stop the nodes afterwards, run 
-	kill_all fuzz_testing_exec
+To start a random test that is not human generated, run the following on the command line:
+
+    ./random_test.sh 1 42 1
+
+where the parameters are `F SEED RUNS` where `F` dictates the number of nodes (2F + 1),
+`SEED` is the seed that will specify the operations in the test, and `RUNS` is the number of times run.
