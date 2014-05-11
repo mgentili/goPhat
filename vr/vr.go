@@ -60,6 +60,7 @@ type Replica struct {
 	Codecs     []*GobServerCodec
 
 	SnapshotFunc func(interface{}, func() uint) ([]byte, uint, error)
+    LoadSnapshotFunc func(interface{}, []byte) (error)
 	// ensure only one snapshot at a time
 	SnapshotLock sync.Mutex
 	// index of last snapshot
@@ -102,9 +103,8 @@ type ReplicaState struct {
 }
 
 type MasterState struct {
-	A uint
-	// bit vector of what replicas have replied
-	Replies uint64
+	// map from replica number to OpNumber
+	HighestOp map[uint]uint
 
 	Timer      *time.Timer
 	Heartbeats map[uint]time.Time
@@ -206,9 +206,6 @@ func (r *Replica) RunVR(command Command) {
 	assert(r.IsMaster())
 	r.Mstate.RunVRLock.Lock()
 
-	// TODO: it'd probably be better to just keep a map from replica id to latest ack'd op number (a la raft)
-	r.Mstate.Reset()
-
 	vrCommand := VRCommand{command, make(chan int)}
 
 	r.addLog(vrCommand)
@@ -227,16 +224,23 @@ func (r *Replica) RunVR(command Command) {
 	r.Debug(DEBUG, "Finished RunVR")
 }
 
+func (r *Replica) calcHighestMajorityOp() uint {
+	assert(r.IsMaster())
+	sortedOps := SortUints(r.Mstate.HighestOp)
+
+	lowestMajority := len(sortedOps) - int(F)
+	if lowestMajority < 0 {
+		// not enough responses to commit anything
+		return 0
+	}
+	return sortedOps[lowestMajority]
+}
+
 func (r *Replica) handlePrepareOK(reply *PrepareReply) bool {
 	r.Debug(DEBUG, "got response: %+v\n", reply)
 
 	// no longer master, we don't care about this prepare anymore
 	if !r.IsMaster() {
-		return true
-	}
-
-	if reply.OpNumber <= r.Rstate.CommitNumber {
-		r.Debug(STATUS, "Got reply for op %d, which we've already committed", reply.OpNumber)
 		return true
 	}
 
@@ -246,33 +250,23 @@ func (r *Replica) handlePrepareOK(reply *PrepareReply) bool {
 
 	r.Heartbeat(reply.ReplicaNumber, reply.Lease)
 
-	if reply.OpNumber != r.Rstate.OpNumber {
-		return false
+	if reply.OpNumber > r.Mstate.HighestOp[reply.ReplicaNumber] {
+		r.Mstate.HighestOp[reply.ReplicaNumber] = reply.OpNumber
 	}
-
-	if ((1 << reply.ReplicaNumber) & r.Mstate.Replies) != 0 {
-		return false
-	}
-
-	r.Debug(DEBUG, "got suitable response\n")
-
-	r.Mstate.Replies |= 1 << reply.ReplicaNumber
-	r.Mstate.A++
 
 	r.Debug(DEBUG, "new master state: %v\n", r.Mstate)
 
-	// only need F responses (we implicitly got one from ourselves)
-	if r.Mstate.A != F {
-		return r.Mstate.A >= F
-	}
+	highCommit := r.calcHighestMajorityOp()
 
-	// we've now gotten a majority
-	r.doCommit(r.Rstate.OpNumber)
+	if highCommit > r.Rstate.CommitNumber {
+		// we've now gotten a majority
+		r.doCommit(highCommit)
+	}
 
 	// TODO: we shouldn't really need to do this (only on periods of inactivity)
 	r.sendCommitMsgs()
 
-	return true
+	return highCommit >= reply.OpNumber
 }
 
 func (r *Replica) sendCommitMsgs() {
@@ -395,8 +389,8 @@ func (r *Replica) doCommit(cn uint) {
 		return
 	} else if cn > r.Rstate.CommitNumber+1 {
 		r.Debug(STATUS, "need to do extra commits to commit to %d", cn)
-		r.CommitLock.Unlock()
 		needsUnlock = false
+		r.CommitLock.Unlock()
 		// we're behind (but have all the log entries, so don't need to state
 		// transfer), so catch up by committing up to the current commit
 		// we also recursively commit the *current* (cn) commit. this is because we're releasing
@@ -405,7 +399,6 @@ func (r *Replica) doCommit(cn uint) {
 		for i := r.Rstate.CommitNumber + 1; i <= cn; i++ {
 			r.doCommit(i)
 		}
-		//needsUnlock = false
 		return
 	}
 	assert(cn == r.Rstate.CommitNumber+1)

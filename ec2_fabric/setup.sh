@@ -14,5 +14,5 @@ if ! grep -q 'GOPATH/bin' $HOME/.bash_profile ; then
 	source $HOME/.bash_profile
 fi
 
-go get github.com/mgentili/goPhat/benchmarks/qserver
-go get github.com/mgentili/goPhat/benchmarks/qworker
+go get -u github.com/mgentili/goPhat/benchmarks/qserver
+#go get -u github.com/mgentili/goPhat/benchmarks/qworker

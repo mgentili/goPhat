@@ -71,6 +71,20 @@ func SnapshotFunc(context interface{}, SnapshotHandle func() uint) ([]byte, uint
 	return snapshot.Data, snapshot.SnapshotIndex, nil
 }
 
+func LoadSnapshotFunc(context interface{}, data []byte) error {
+    s := context.(*Server)
+    command := &queue.QCommand{"LOAD_SNAPSHOT", data}
+
+    argsWithChannel := queue.QCommandWithChannel{command, make(chan *queue.QResponse)}
+    s.InputChan <- argsWithChannel
+
+    result := <-argsWithChannel.Done
+    if result.Error != "" {
+        return errors.New(result.Error)
+    }
+    return nil
+}
+
 func (s *Server) debug(level int, format string, args ...interface{}) {
 	//return
 	str := fmt.Sprintf("%d: %s", s.ReplicaServer.Rstate.ReplicaNumber, format)
@@ -107,6 +121,7 @@ func StartServer(address string, replica *vr.Replica) (*rpc.Server, error) {
 	serve.startQueue()
 	replica.Context = serve
 	replica.SnapshotFunc = SnapshotFunc
+    replica.LoadSnapshotFunc = LoadSnapshotFunc
 
 	newServer := rpc.NewServer()
 	err = newServer.Register(serve)

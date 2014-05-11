@@ -88,6 +88,11 @@ func QueueServer(input chan QCommandWithChannel) {
 				encodeFunc()
 			}
 			continue
+        case "LOAD_SNAPSHOT":
+            err := mq.RecoverSnapshot(req.Value.([]byte))
+            if err != nil {
+                resp.Error = err.Error()
+            }
 		default:
 			resp.Error = "Unknown command"
 		}
