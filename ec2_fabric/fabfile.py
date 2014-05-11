@@ -16,11 +16,11 @@ env.use_ssh_config = True
 
 
 def setup():
-  #sudo('sudo yum update -y')
-  #sudo('sudo yum install golang -y')
+  sudo('sudo yum update -y')
+  sudo('sudo yum install golang -y')
   put('setup.sh', '/tmp/setup.sh', mirror_local_mode=True)
   run('/tmp/setup.sh')
 
 
-def start_server(servers=''):
-  run('qserver --server "{}"'.format(servers))
+def start_server(servers):
+  run('qserver --servers "{}"'.format(servers))
