@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/mgentili/goPhat/level_log"
-	queue "github.com/mgentili/goPhat/queuedisk"
+	queue "github.com/mgentili/goPhat/phatqueue"
 	"github.com/mgentili/goPhat/vr"
 	"net"
 	"net/rpc"
@@ -57,16 +57,16 @@ func (c CommandFunctor) CommitFunc(context interface{}) {
 
 func SnapshotFunc(context interface{}, SnapshotHandle func() uint) ([]byte, uint, error) {
 	s := context.(*Server)
-	command := &phatqueue.QCommand{"SNAPSHOT", SnapshotHandle}
+	command := &queue.QCommand{"SNAPSHOT", SnapshotHandle}
 
-	argsWithChannel := phatqueue.QCommandWithChannel{command, make(chan *phatqueue.QResponse)}
+	argsWithChannel := queue.QCommandWithChannel{command, make(chan *queue.QResponse)}
 	s.InputChan <- argsWithChannel
 
 	result := <-argsWithChannel.Done
 	if result.Error != "" {
 		return nil, 0, errors.New(result.Error)
 	}
-	snapshot := result.Reply.(phatqueue.QSnapshot)
+	snapshot := result.Reply.(queue.QSnapshot)
 	return snapshot.Data, snapshot.SnapshotIndex, nil
 }
 
