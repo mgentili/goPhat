@@ -1,5 +1,7 @@
 package queuedisk
 
+var OpsPerCommit = 100
+
 type QCommand struct {
 	Command string
 	Value   string
@@ -19,7 +21,7 @@ type QCommandWithChannel struct {
 func QueueServer(input chan QCommandWithChannel) {
 	// Set up the queue
 	mq := MessageQueue{}
-	mq.Init()
+	mq.Init(OpsPerCommit)
 
 	// Enter the command loop
 	for {
