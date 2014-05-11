@@ -156,10 +156,6 @@ func (t *RPCReplica) Prepare(args *PrepareArgs, reply *PrepareReply) error {
 		return errors.New("not in normal mode")
 	}
 
-	if args.OpNumber <= r.Rstate.OpNumber {
-		// master must be resending some old request?
-		return errors.New("old op number")
-	}
 	if args.OpNumber > r.Rstate.OpNumber+1 {
 		// we must be behind?
 		//r.PrepareRecovery()
@@ -167,8 +163,10 @@ func (t *RPCReplica) Prepare(args *PrepareArgs, reply *PrepareReply) error {
 		return fmt.Errorf("op numbers out of sync: got %d expected %d", args.OpNumber, r.Rstate.OpNumber+1)
 	}
 
-	r.addLog(args.Command)
-	r.Rstate.OpNumber++
+	if args.OpNumber > r.Rstate.OpNumber {
+		r.addLog(args.Command)
+		r.Rstate.OpNumber++
+	}
 
 	// commit the last thing if necessary (this reduces the number of actual
 	// commit messages that need to be sent)
