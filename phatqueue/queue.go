@@ -1,7 +1,11 @@
 package phatqueue
 
-import "container/list"
-import "strconv"
+import (
+	"bytes"
+	"container/list"
+	"encoding/gob"
+	"strconv"
+)
 
 type QMessage struct {
 	MessageID string
@@ -52,4 +56,28 @@ func (mq *MessageQueue) Len() int {
 
 func (mq *MessageQueue) LenInProgress() int {
 	return len(mq.inProgress)
+}
+
+func (mq *MessageQueue) Copy() (newmq *MessageQueue) {
+	newmq = new(MessageQueue)
+	newmq.Init()
+	// newmq.queue is initially empty so this effectively copies mq.queue to it
+	newmq.queue.PushBackList(&mq.queue)
+	for k, v := range mq.inProgress {
+		newmq.inProgress[k] = v
+	}
+	newmq.id = mq.id
+	return
+}
+
+func (mq *MessageQueue) Bytes() ([]byte, error) {
+	var queueState bytes.Buffer
+	enc := gob.NewEncoder(&queueState)
+	err := enc.Encode(mq.queue)
+	err = enc.Encode(mq.inProgress)
+	err = enc.Encode(mq.id)
+	if err != nil {
+		return nil, err
+	}
+	return queueState.Bytes(), nil
 }

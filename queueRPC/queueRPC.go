@@ -55,6 +55,21 @@ func (c CommandFunctor) CommitFunc(context interface{}) {
 	}
 }
 
+func SnapshotFunc(context interface{}, SnapshotHandle func() uint) ([]byte, uint, error) {
+	s := context.(*Server)
+	command := &phatqueue.QCommand{"SNAPSHOT", SnapshotHandle}
+
+	argsWithChannel := phatqueue.QCommandWithChannel{command, make(chan *phatqueue.QResponse)}
+	s.InputChan <- argsWithChannel
+
+	result := <-argsWithChannel.Done
+	if result.Error != "" {
+		return nil, 0, errors.New(result.Error)
+	}
+	snapshot := result.Reply.(phatqueue.QSnapshot)
+	return snapshot.Data, snapshot.SnapshotIndex, nil
+}
+
 func (s *Server) debug(level int, format string, args ...interface{}) {
 	return
 	str := fmt.Sprintf("%d: %s", s.ReplicaServer.Rstate.ReplicaNumber, format)
@@ -90,6 +105,7 @@ func StartServer(address string, replica *vr.Replica) (*rpc.Server, error) {
 	serve.ClientTable = make(map[string]ClientTableEntry)
 	serve.startQueue()
 	replica.Context = serve
+	replica.SnapshotFunc = SnapshotFunc
 
 	newServer := rpc.NewServer()
 	err = newServer.Register(serve)
@@ -181,7 +197,7 @@ func (s *Server) Send(args *ClientCommand, reply *phatqueue.QResponse) error {
 		s.ReplicaServer.RunVR(CommandFunctor{argsWithChannel})
 	} else {
 		s.InputChan <- argsWithChannel
-	}	
+	}
 	result := <-argsWithChannel.Done
 	*reply = *result
 	// place the response entry into the client table

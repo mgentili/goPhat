@@ -27,6 +27,9 @@ const (
 	MAX_TRIES = 2
 	// doubles after every failure
 	BACKOFF_TIME = 10 * time.Millisecond
+
+	// start off with very frequent snapshots
+	SNAP_FREQ = 10
 )
 
 // a replica's possible states
@@ -54,6 +57,13 @@ type Replica struct {
 	CommitLock sync.Mutex
 	Listener   net.Listener
 	Codecs     []*GobServerCodec
+
+	SnapshotFunc func(interface{}, func() uint) ([]byte, uint, error)
+	// ensure only one snapshot at a time
+	SnapshotLock sync.Mutex
+	// index of last snapshot
+	SnapshotIndex uint
+	SnapshotFile  string
 
 	IsShutdown     bool // completely shutdown
 	IsDisconnected bool // just disconnected from other replicas
@@ -279,6 +289,7 @@ func RunAsReplica(i uint, config []string) *Replica {
 	F = (NREPLICAS - 1) / 2
 	r := new(Replica)
 	r.Rstate.ReplicaNumber = i
+	r.SnapshotFile = fmt.Sprintf("snapshot%d.snap", i)
 	r.Config = config
 	r.Conns = make([]*rpc.Client, NREPLICAS)
 
@@ -399,6 +410,9 @@ func (r *Replica) doCommit(cn uint) {
 	r.Debug(DEBUG, "committed: %d", r.Rstate.CommitNumber)
 	if vrCommand.Done != nil {
 		vrCommand.Done <- 0
+	}
+	if (r.Rstate.CommitNumber % SNAP_FREQ) == SNAP_FREQ-1 {
+		go r.TakeSnapshot()
 	}
 }
 
