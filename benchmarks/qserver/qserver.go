@@ -40,28 +40,45 @@ func localIP() (net.IP, error) {
 }
 
 func main() {
+	// Set and read the command line flags
 	rawServerPaths := flag.String("servers", "", "Path to servers, space delimited")
 	initPosition := flag.Int("pos", -1, "Position in server list (if blank, attempts to use IP to guess)")
+	local := flag.Bool("local", true, "Sets if the test is running on a single machine")
 	flag.Parse()
-	*rawServerPaths = "127.0.0.1:9000 127.0.0.1:9001 127.0.0.1:9002"
+	if *local {
+		*rawServerPaths = "127.0.0.1:9000 127.0.0.1:9001 127.0.0.1:9002"
+	}
 	serverPaths := strings.Fields(*rawServerPaths)
 
 	ip, _ := localIP()
 
+	// Work out which address this server should use
+	// If we're not local, use our IP address
+	// If we're local, use the position we've been given
 	position := *initPosition
-	for i := 0; i < len(serverPaths); i = i + 1 {
-		if position == -1 && serverPaths[i] == ip.String() {
-			position = i
+	if !*local {
+		for i := 0; i < len(serverPaths); i = i + 1 {
+			if position == -1 && serverPaths[i] == ip.String() {
+				position = i
+			}
 		}
 	}
 	if position == -1 {
 		log.Println("Couldn't find my position in the servers array")
 	}
 
-	fmt.Println("Starting server at " + serverPaths[position] + "...")
+	// Start VR and the Queue RPC server
+	fmt.Println("Starting VR server at " + serverPaths[position] + "...")
 	newReplica := vr.RunAsReplica(uint(position), serverPaths)
-	queueRPC.StartServer(ip.String()+":"+strconv.FormatInt(1337+int64(position), 10), newReplica)
+	port := 1337
+	if *local {
+		port += position
+	}
+	rpcServerPath := ip.String() + ":" + strconv.FormatInt(int64(port), 10)
+	fmt.Println("Starting RPC server at " + rpcServerPath + "...")
+	queueRPC.StartServer(rpcServerPath, newReplica)
 
+	// Survive indefinitely
 	t := time.NewTicker(1 * time.Minute)
 	for _ = range t.C {
 	}
