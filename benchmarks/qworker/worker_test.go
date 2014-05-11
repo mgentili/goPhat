@@ -1,4 +1,4 @@
-package worker
+package main
 
 import (
 	"fmt"
@@ -60,14 +60,14 @@ func Test10k(b *testing.T) {
 		newReplica := vr.RunAsReplica(uint(i), replica_config)
 		queueRPC.StartServer(client_config[i], newReplica)
 	}
-	time.Sleep(3*time.Second)
+	time.Sleep(time.Second)
 	cli, err := NewWorker(client_config, 1, "w1")
 	if err != nil {
 		b.Errorf(err.Error())
 	}
 	//
 	start := time.Now()
-	for n := 0; n < 10000; n++ {
+	for n := 0; n < 1000; n++ {
 		testString := fmt.Sprintf("hello-%d", n)
 		err = cli.Push(testString)
 		if err != nil {

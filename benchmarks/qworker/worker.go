@@ -1,7 +1,7 @@
-package worker
+package main
 
 import (
-	//	"encoding/gob"
+	"encoding/gob"
 	"errors"
 	"github.com/mgentili/goPhat/client"
 	queue "github.com/mgentili/goPhat/queuedisk"
@@ -27,6 +27,7 @@ func (w *Worker) debug(level int, format string, args ...interface{}) {
 // and attempts to connect to the master server
 func NewWorker(servers []string, id uint, uid string) (*Worker, error) {
 	var err error
+	gob.Register(queue.QMessage{})
 	w := new(Worker)
 	w.SeqNumber = 0
 	w.Cli, err = client.NewClient(servers, id, uid)
