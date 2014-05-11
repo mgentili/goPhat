@@ -102,9 +102,8 @@ type ReplicaState struct {
 }
 
 type MasterState struct {
-	A uint
-	// bit vector of what replicas have replied
-	Replies uint64
+	// map from replica number to OpNumber
+	HighestOp map[uint]uint
 
 	Timer      *time.Timer
 	Heartbeats map[uint]time.Time
