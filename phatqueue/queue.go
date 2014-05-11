@@ -68,6 +68,19 @@ func (mq *MessageQueue) LenInProgress() int {
 	return len(mq.InProgress)
 }
 
+//recover the snapshot from disk
+func (mq *MessageQueue) RecoverSnapshot(snapshotBytes []byte) error {
+    dec := gob.NewDecoder(bytes.NewBuffer(snapshotBytes))
+	err := dec.Decode(&mq.Queue)
+	err = dec.Decode(&mq.InProgress)
+	err = dec.Decode(&mq.Id)
+	if err != nil {
+		return err
+    }
+
+    return nil
+}
+
 //convert the queue to a byte slice
 func (mq *MessageQueue) Bytes() ([]byte, error) {
 	var queueState bytes.Buffer
