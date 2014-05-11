@@ -386,6 +386,7 @@ func (r *Replica) doCommit(cn uint) {
 		return
 	} else if cn > r.Rstate.CommitNumber+1 {
 		r.Debug(STATUS, "need to do extra commits to commit to %d", cn)
+		needsUnlock = false
 		r.CommitLock.Unlock()
 		// we're behind (but have all the log entries, so don't need to state
 		// transfer), so catch up by committing up to the current commit
@@ -395,7 +396,6 @@ func (r *Replica) doCommit(cn uint) {
 		for i := r.Rstate.CommitNumber + 1; i <= cn; i++ {
 			r.doCommit(i)
 		}
-		needsUnlock = false
 		return
 	}
 	assert(cn == r.Rstate.CommitNumber+1)

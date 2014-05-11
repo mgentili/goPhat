@@ -6,9 +6,35 @@ import (
 	"os"
 )
 
-type Snapshot struct {
-	SnapshotIndex uint
-	Data          []byte
+func (r *Replica) LoadSnapshotFromDisk() {
+    f, err := os.Open(r.SnapshotFile)
+    defer func() {
+        if err != nil { r.Debug(ERROR, err.Error()); }
+    }
+    if err != nil {
+        return
+    }
+    defer f.Close()
+
+    fileinfo, err := f.Stat()
+    if err != nil {
+        return
+    }
+    buf := make([]byte, fileinfo.Size())
+    n, err := f.Read(snapBytes)
+    if err != nil { return }
+    assert(n==fileinfo.Size())
+
+    snapIndex := binary.LittleEndian.Uint64(buf[:8])
+
+    r.LoadSnapshot(buf[8:], snapIndex)
+}
+
+func (r *Replica) LoadSnapshot(data []byte, snapIndex uint) {
+    r.LoadSnapshotFunc(r.Context, data)
+    r.SnapshotIndex = snapIndex
+    r.Rstate.OpNumber = snapIndex
+    r.Rstate.CommitNumber = snapIndex
 }
 
 // does a snapshot (synchronous)
