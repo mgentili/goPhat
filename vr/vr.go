@@ -108,6 +108,7 @@ type MasterState struct {
 
 	Timer      *time.Timer
 	Heartbeats map[uint]time.Time
+	RunVRLock  sync.Mutex
 }
 
 type PrepareArgs struct {
@@ -205,6 +206,7 @@ func (r *Replica) RunVR(command Command) {
 		return
 	}
 	assert(r.IsMaster())
+	r.Mstate.RunVRLock.Lock()
 
 	// TODO: it'd probably be better to just keep a map from replica id to latest ack'd op number (a la raft)
 	r.Mstate.Reset()
@@ -221,6 +223,8 @@ func (r *Replica) RunVR(command Command) {
 	go r.sendAndRecv(NREPLICAS-1, "RPCReplica.Prepare", args, replyConstructor, func(reply interface{}) bool {
 		return r.handlePrepareOK(reply.(*PrepareReply))
 	})
+	r.Mstate.RunVRLock.Unlock()
+
 	<-vrCommand.Done
 	r.Debug(DEBUG, "Finished RunVR")
 }
