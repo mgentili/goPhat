@@ -43,7 +43,7 @@ func main() {
 	// Set and read the command line flags
 	rawServerPaths := flag.String("servers", "", "Path to servers, space delimited")
 	initPosition := flag.Int("pos", -1, "Position in server list (if blank, attempts to use IP to guess)")
-	local := flag.Bool("local", true, "Sets if the test is running on a single machine")
+	local := flag.Bool("local", false, "States the test is running on a single machine")
 	flag.Parse()
 	if *local {
 		*rawServerPaths = "127.0.0.1:9000 127.0.0.1:9001 127.0.0.1:9002"
@@ -51,6 +51,7 @@ func main() {
 	serverPaths := strings.Fields(*rawServerPaths)
 
 	ip, _ := localIP()
+	log.Println('My IP address is', ip)
 
 	// Work out which address this server should use
 	// If we're not local, use our IP address
@@ -64,7 +65,7 @@ func main() {
 		}
 	}
 	if position == -1 {
-		log.Println("Couldn't find my position in the servers array")
+		log.Fatal("Couldn't find my position in the servers array")
 	}
 
 	// Start VR and the Queue RPC server
