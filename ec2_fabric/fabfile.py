@@ -15,6 +15,7 @@ env.use_ssh_config = True
 # fab command -i /home/mgentili/Dropbox/AWS-VM.pem -H ec2-user@...
 
 
+@parallel
 def setup():
   sudo('sudo yum update -y')
   sudo('sudo yum install golang -y')
@@ -22,5 +23,6 @@ def setup():
   run('/tmp/setup.sh')
 
 
+@parallel
 def start_server(servers):
   run('qserver --servers "{}"'.format(servers))
