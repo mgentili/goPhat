@@ -86,7 +86,7 @@ func LoadSnapshotFunc(context interface{}, data []byte) error {
 }
 
 func (s *Server) debug(level int, format string, args ...interface{}) {
-	//return
+	return
 	str := fmt.Sprintf("%d: %s", s.ReplicaServer.Rstate.ReplicaNumber, format)
 	server_log.Printf(level, str, args...)
 }
