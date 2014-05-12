@@ -59,7 +59,7 @@ func main() {
 	position := *initPosition
 	if !*local {
 		for i := 0; i < len(serverPaths); i = i + 1 {
-			host := strings.Split(serverPaths[i], ':')
+			host := strings.Split(serverPaths[i], ":")
 			log.Println(host[0])
 			if position == -1 && host[0] == ip.String() {
 				position = i
