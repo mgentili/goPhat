@@ -29,13 +29,17 @@ type MessageQueue struct {
 	logFilename string
     logFilePtr *os.File
     snapshotFilename string
+    OpsPerSnapshot int
+    OpCounter int
 }
 
-func (mq *MessageQueue) Init() {
+func (mq *MessageQueue) Init(TmpOpsPerSnapshot int) {
 	mq.InProgress = make(map[string]QMessage)
 	mq.logFilename = log_file
     mq.snapshotFilename = snapshot_file
 	mq.Log = phatlog.EmptyLog()
+    mq.OpsPerSnapshot = TmpOpsPerSnapshot
+    mq.OpCounter = 0
 
     //recover from snapshot if available
 	_, err := os.Stat(mq.snapshotFilename)
@@ -52,7 +56,6 @@ func (mq *MessageQueue) Init() {
     mq.logFilePtr, _  = os.OpenFile(mq.logFilename, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0666)
 }
 
-
 func (mq *MessageQueue) NextID() int {
 	mq.Id += 1
 	return mq.Id
@@ -62,6 +65,8 @@ func (mq *MessageQueue) Push(v interface{}) {
 	qm := QMessage{strconv.Itoa(mq.NextID()), v}
 	mq.Queue = append(mq.Queue, qm)
     mq.BackupLog(LogEntry{Message:qm, Command:"PUSH"})
+    mq.OpCounter++
+    mq.CheckSnapshot()
 }
 
 func (mq *MessageQueue) Pop() *QMessage {
@@ -71,6 +76,8 @@ func (mq *MessageQueue) Pop() *QMessage {
     var qm QMessage
     qm, mq.Queue = mq.Queue[len(mq.Queue)-1], mq.Queue[:len(mq.Queue)-1]
     mq.BackupLog(LogEntry{Command:"POP"})
+    mq.OpCounter++
+    mq.CheckSnapshot()
 	return &qm
 }
 
@@ -100,6 +107,14 @@ func (mq *MessageQueue) Len() int {
 
 func (mq *MessageQueue) LenInProgress() int {
 	return len(mq.InProgress)
+}
+
+//periodically snapshot when we have done enough operations
+func (mq *MessageQueue) CheckSnapshot() {
+    if mq.OpCounter >= mq.OpsPerSnapshot {
+        mq.Snapshot()
+        mq.OpCounter = 0
+    }
 }
 
 //recover the snapshot from disk
