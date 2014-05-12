@@ -28,7 +28,7 @@ const (
 	// doubles after every failure
 	BACKOFF_TIME = 10 * time.Millisecond
 
-	// start off with very frequent snapshots
+	// start off with very frequent snapshots (set to high number to disable snapshots)
 	SNAP_FREQ     = 100
 	SNAPSHOT_FILE = "snapshot%d.snap" // %d==replica number
 )
@@ -59,8 +59,8 @@ type Replica struct {
 	Listener   net.Listener
 	Codecs     []*GobServerCodec
 
-	SnapshotFunc func(interface{}, func() uint) ([]byte, uint, error)
-    LoadSnapshotFunc func(interface{}, []byte) (error)
+	SnapshotFunc     func(interface{}, func() uint) ([]byte, uint, error)
+	LoadSnapshotFunc func(interface{}, []byte) error
 	// ensure only one snapshot at a time
 	SnapshotLock sync.Mutex
 	// index of last snapshot
@@ -158,7 +158,6 @@ func (t *RPCReplica) Prepare(args *PrepareArgs, reply *PrepareReply) error {
 
 	if args.OpNumber > r.Rstate.OpNumber+1 {
 		// we must be behind?
-		//r.PrepareRecovery()
 		r.StartStateTransfer()
 		return fmt.Errorf("op numbers out of sync: got %d expected %d", args.OpNumber, r.Rstate.OpNumber+1)
 	}
@@ -293,6 +292,9 @@ func RunAsReplica(i uint, config []string) *Replica {
 	r.ReplicaInit()
 
 	go r.ReplicaRun()
+
+	// load up our snapshotted state
+	r.LoadSnapshotFromDisk()
 
 	// start in recovery, in case we're being restarted from a previous run.
 	// if this is indeed the first run, we'll next go to view change mode to decide a master
