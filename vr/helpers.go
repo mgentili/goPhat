@@ -21,7 +21,7 @@ var VR_log *level_log.Logger
 
 func SetupVRLog() {
 	if VR_log == nil {
-		levelsToLog := []int{DEBUG, STATUS}
+		levelsToLog := []int{DEBUG, STATUS, ERROR}
 		VR_log = level_log.NewLL(os.Stdout, "VR: ")
 		VR_log.SetLevelsToLog(levelsToLog)
 	}
