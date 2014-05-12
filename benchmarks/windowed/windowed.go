@@ -29,7 +29,12 @@ var Requests WorkerRequests
 func makeCall(requestNum int) {
 	log.Printf("In make call with requestNum %d", requestNum)
 	start := time.Now()
-	Requests.Worker.Push("work")
+	if requestNum % 2 == 0 {
+		Requests.Worker.Push("work")
+	} else {
+		Requests.Worker.Pop()
+	}
+	
 	end := time.Since(start)
 	Requests.RequestTimes[requestNum] = Times{start, end}
 	Requests.RequestChan <- requestNum
