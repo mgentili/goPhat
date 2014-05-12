@@ -1,24 +1,12 @@
 package queuedisk
 
+import (
+	queue "github.com/mgentili/goPhat/phatqueue"
+)
+
 var OpsPerCommit = 100
 
-type QCommand struct {
-	Command string
-	Value   string
-}
-
-type QResponse struct {
-	Reply interface{}
-	Error string
-}
-
-type QCommandWithChannel struct {
-	Cmd  *QCommand
-	Done chan *QResponse
-}
-
-
-func QueueServer(input chan QCommandWithChannel) {
+func QueueServer(input chan queue.QCommandWithChannel) {
 	// Set up the queue
 	mq := MessageQueue{}
 	mq.Init(OpsPerCommit)
@@ -27,7 +15,7 @@ func QueueServer(input chan QCommandWithChannel) {
 	for {
 		request := <-input
 		req := request.Cmd
-		resp := &QResponse{}
+		resp := &queue.QResponse{}
 		switch req.Command {
 		case "PUSH":
 			mq.Push(req.Value)
@@ -41,7 +29,7 @@ func QueueServer(input chan QCommandWithChannel) {
         case "SNAPSHOT":
             mq.Snapshot()
 		case "DONE":
-			mq.Done(req.Value)
+			mq.Done(req.Value.(string))
 		case "LEN":
 			resp.Reply = mq.Len()
 		case "LEN_IN_PROGRESS":

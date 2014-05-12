@@ -1,29 +1,22 @@
 package queuedisk
 
-import "strconv"
-import "bytes"
-import "os"
-import "encoding/gob"
-import "encoding/binary"
-import "io/ioutil"
-import "github.com/mgentili/goPhat/phatlog"
+import (
+    "strconv"
+    "bytes"
+    "os"
+    "encoding/gob"
+    "encoding/binary"
+    "io/ioutil"
+    "github.com/mgentili/goPhat/phatlog"
+    queue "github.com/mgentili/goPhat/phatqueue"
+)
 
 var log_file = "log.bin"
 var snapshot_file = "snapshot.bin"
 
-type QMessage struct {
-	MessageID string
-	Value     interface{}
-}
-
-type LogEntry struct {
-    Message QMessage
-    Command string
-}
-
 type MessageQueue struct {
-	Queue           []QMessage
-	InProgress      map[string]QMessage
+	Queue           []queue.QMessage
+	InProgress      map[string]queue.QMessage
 	Id              int
     Log *phatlog.Log
 	logFilename string
@@ -34,7 +27,7 @@ type MessageQueue struct {
 }
 
 func (mq *MessageQueue) Init(TmpOpsPerSnapshot int) {
-	mq.InProgress = make(map[string]QMessage)
+	mq.InProgress = make(map[string]queue.QMessage)
 	mq.logFilename = log_file
     mq.snapshotFilename = snapshot_file
 	mq.Log = phatlog.EmptyLog()
@@ -62,20 +55,20 @@ func (mq *MessageQueue) NextID() int {
 }
 
 func (mq *MessageQueue) Push(v interface{}) {
-	qm := QMessage{strconv.Itoa(mq.NextID()), v}
+	qm := queue.QMessage{strconv.Itoa(mq.NextID()), v}
 	mq.Queue = append(mq.Queue, qm)
-    mq.BackupLog(LogEntry{Message:qm, Command:"PUSH"})
+    mq.BackupLog(queue.LogEntry{Message:qm, Command:"PUSH"})
     mq.OpCounter++
     mq.CheckSnapshot()
 }
 
-func (mq *MessageQueue) Pop() *QMessage {
+func (mq *MessageQueue) Pop() *queue.QMessage {
 	if mq.Len() == 0 {
 		return nil
 	}
-    var qm QMessage
+    var qm queue.QMessage
     qm, mq.Queue = mq.Queue[len(mq.Queue)-1], mq.Queue[:len(mq.Queue)-1]
-    mq.BackupLog(LogEntry{Command:"POP"})
+    mq.BackupLog(queue.LogEntry{Command:"POP"})
     mq.OpCounter++
     mq.CheckSnapshot()
 	return &qm
@@ -84,15 +77,15 @@ func (mq *MessageQueue) Pop() *QMessage {
 //ReplayPush/Pop modify the queue in the same way, but do not add to
 //logging file (since they are already there!)
 func (mq *MessageQueue) ReplayPush(v interface{}) {
-	qm := QMessage{strconv.Itoa(mq.NextID()), v}
+	qm := queue.QMessage{strconv.Itoa(mq.NextID()), v}
 	mq.Queue = append(mq.Queue, qm)
 }
 
-func (mq *MessageQueue) ReplayPop() *QMessage {
+func (mq *MessageQueue) ReplayPop() *queue.QMessage {
 	if mq.Len() == 0 {
 		return nil
 	}
-    var qm QMessage
+    var qm queue.QMessage
     qm, mq.Queue = mq.Queue[len(mq.Queue)-1], mq.Queue[:len(mq.Queue)-1]
 	return &qm
 }
@@ -150,16 +143,16 @@ func (mq *MessageQueue) RecoverLog(filename string) {
 }
 
 //parses the binary log file into log entries
-func (mq *MessageQueue) ParseLogFile(buffer []byte) []LogEntry {
-    gob.Register(LogEntry{})
-    logEntries := []LogEntry{}
+func (mq *MessageQueue) ParseLogFile(buffer []byte) []queue.LogEntry {
+    gob.Register(queue.LogEntry{})
+    logEntries := []queue.LogEntry{}
 
     buf_len := len(buffer)
     beg_idx := 0
     int_len := 4
 
     for beg_idx < buf_len {
-        le := LogEntry{}
+        le := queue.LogEntry{}
 
         length := int(binary.LittleEndian.Uint32(buffer[beg_idx:beg_idx + int_len]))
         beg_idx += int_len
@@ -172,8 +165,8 @@ func (mq *MessageQueue) ParseLogFile(buffer []byte) []LogEntry {
 }
 
 //write copy of log to disk
-func (mq *MessageQueue) BackupLog(logentry LogEntry) error {
-    gob.Register(LogEntry{})
+func (mq *MessageQueue) BackupLog(logentry queue.LogEntry) error {
+    gob.Register(queue.LogEntry{})
     w := new(bytes.Buffer)
     encoder := gob.NewEncoder(w)
     err := encoder.Encode(logentry)
@@ -182,12 +175,12 @@ func (mq *MessageQueue) BackupLog(logentry LogEntry) error {
 		return err
 	}
 
-    //write the size of the Logentry to the file
+    //write the size of the logentry to the file
     bs := make([]byte, 4)
     binary.LittleEndian.PutUint32(bs, uint32(len(w.Bytes())))
     _, err = mq.logFilePtr.Write(bs)
 
-    //write the LogEntry to the file
+    //write the logentry to the file
     _, err = mq.logFilePtr.Write(w.Bytes())
 
 	if err != nil {
