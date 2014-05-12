@@ -1,11 +1,12 @@
 package worker
 
 import (
-	//	"encoding/gob"
+	"encoding/gob"
 	"errors"
 	"github.com/mgentili/goPhat/client"
 	queue "github.com/mgentili/goPhat/phatqueue"
 	"github.com/mgentili/goPhat/queueRPC"
+	"log"
 )
 
 const (
@@ -35,7 +36,8 @@ func NewWorker(servers []string, id uint, uid string) (*Worker, error) {
 	}
 
 	// We need to register the DataNode and StatNode before we can use them in gob
-
+	gob.Register(queue.QCommand{})
+	gob.Register(queue.QMessage{})
 	return w, nil
 }
 
@@ -43,7 +45,11 @@ func (w *Worker) processCall(cmd *queue.QCommand) (*queue.QResponse, error) {
 	args := &queueRPC.ClientCommand{w.Cli.Uid, w.SeqNumber, cmd}
 	response := &queue.QResponse{}
 	w.SeqNumber++
-	err := w.Cli.RpcClient.Call("Server.Send", args, response)
+	var err error
+	defer func() {
+		log.Printf("Errored in processCall %v", err)
+	}()
+	err = w.Cli.RpcClient.Call("Server.Send", args, response)
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +70,9 @@ func (w *Worker) Push(work string) error {
 func (w *Worker) Pop() (*queue.QResponse, error) {
 	cmd := &queue.QCommand{"POP", ""}
 	res, err := w.processCall(cmd)
-
+	if err != nil {
+		log.Printf("Errored in pop %v", err)
+	}
 	// TODO: Make it do something with the response?
 	return res, err
 }
