@@ -46,7 +46,7 @@ func main() {
 	local := flag.Bool("local", false, "States the test is running on a single machine")
 	flag.Parse()
 	if *local {
-		*rawServerPaths = "127.0.0.1:9000 127.0.0.1:9001 127.0.0.1:9002"
+		*rawServerPaths = "127.0.0.1:9000 127.0.0.1:9001 127.0.0.1:9002 127.0.0.1:9003 127.0.0.1:9004"
 	}
 	serverPaths := strings.Fields(*rawServerPaths)
 
@@ -59,7 +59,9 @@ func main() {
 	position := *initPosition
 	if !*local {
 		for i := 0; i < len(serverPaths); i = i + 1 {
-			if position == -1 && serverPaths[i] == ip.String() {
+			host := strings.Split(serverPaths[i], ':')
+			log.Println(host[0])
+			if position == -1 && host[0] == ip.String() {
 				position = i
 			}
 		}
