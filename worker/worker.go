@@ -46,9 +46,9 @@ func (w *Worker) processCall(cmd *queue.QCommand) (*queue.QResponse, error) {
 	response := &queue.QResponse{}
 	w.SeqNumber++
 	var err error
-	defer func() {
+	/*defer func() {
 		log.Printf("Errored in processCall %v", err)
-	}()
+	}()*/
 	err = w.Cli.RpcClient.Call("Server.Send", args, response)
 	if err != nil {
 		return nil, err
