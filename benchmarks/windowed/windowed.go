@@ -6,6 +6,7 @@ import (
     "fmt"
     "flag"
     "log"
+    "os"
     "strings"
     "time"
     "github.com/mgentili/goPhat/worker"
@@ -76,7 +77,7 @@ func main() {
     s := flag.String("servers", "", "Location of server to connect to")
     id := flag.Uint("id", 0, "Id of server to connect to")
     uid := flag.String("uid", "c1", "Unique id of client")
-
+    output := flag.String("file", "", "File to log output")
     flag.Parse()
 
     Requests.NumMessages = *nM
@@ -84,10 +85,17 @@ func main() {
     Requests.RequestTimes = make([]Times, *nM)
     Requests.RequestChan = make(chan int, *wS)
 
+    var err error
+
+    dataptr, err  := os.OpenFile(*output, os.O_CREATE|os.O_WRONLY, 0666)
+    defer dataptr.Close()
+
+    if err != nil {
+    	log.Fatalf("Failed to create file")
+    }
     fmt.Printf("Num Messages: %d, Window Size: %d\n",
     	Requests.NumMessages, Requests.WindowSize)
 
-    var err error
     Requests.Worker, err = worker.NewWorker(strings.Fields(*s), *id, *uid)
     if (err != nil) {
     	log.Printf("Failed to create worker with error %v", err)
@@ -96,6 +104,7 @@ func main() {
 
     start := Requests.RequestTimes[0].StartTime
     for i, v := range(Requests.RequestTimes) {
+    	dataptr.WriteString(fmt.Sprintf("%d, %v, %v\n", i, v.StartTime.Sub(start), v.Duration))
     	log.Printf("Request %d: Started at: %v, Duration: %v", i, v.StartTime.Sub(start), v.Duration)
     }
 
