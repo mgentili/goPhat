@@ -1,7 +1,7 @@
 package phatqueue
 
 import (
-	"fmt"
+//	"fmt"
 )
 
 const (
@@ -43,7 +43,7 @@ func QueueServer(input chan QCommandWithChannel) {
 			switch req.Command {
 			case "PUSH", "POP", "DONE":
 				// we're writing, so we need to do a copy
-				fmt.Printf("copying the queue because copy on write")
+				//fmt.Printf("copying the queue because copy on write")
 				mq = mq.Copy()
 				copyOnWrite = false
 			}
