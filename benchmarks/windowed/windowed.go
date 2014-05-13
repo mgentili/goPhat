@@ -56,7 +56,7 @@ func RunTest() {
 	received := 0
 	for {
 		select {
-		case c := <-Requests.RequestChan:
+		case <-Requests.RequestChan:
 			received++
 			//log.Printf("Received response for message %d", c)
 			if (sent < Requests.NumMessages) {
