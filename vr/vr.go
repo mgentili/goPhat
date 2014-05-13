@@ -262,9 +262,6 @@ func (r *Replica) handlePrepareOK(reply *PrepareReply) bool {
 		r.doCommit(highCommit)
 	}
 
-	// TODO: we shouldn't really need to do this (only on periods of inactivity)
-	r.sendCommitMsgs()
-
 	return highCommit >= reply.OpNumber
 }
 

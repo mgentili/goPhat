@@ -104,7 +104,7 @@ func (r *Replica) handleRecoveryResponse(reply *RecoveryResponse) (done bool) {
 	}
 
 	// TODO: how does this work with snapshots?
-	if reply.Log.MaxIndex == 0 {
+	if reply.OpNumber == 0 {
 		r.Rcvstate.EmptyLogs++
 	}
 
