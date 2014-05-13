@@ -40,7 +40,7 @@ func wrongView() error {
 }
 
 func (r *Replica) Debug(level int, format string, args ...interface{}) {
-	//return
+	return
 	str := fmt.Sprintf("r%d: %s, %s", r.Rstate.ReplicaNumber, r.replicaStateInfo(), format)
 	VR_log.Printf(level, str, args...)
 }
