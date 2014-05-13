@@ -28,7 +28,7 @@ type WorkerRequests struct {
 var Requests WorkerRequests
 
 func makeCall(requestNum int) {
-	log.Printf("In make call with requestNum %d", requestNum)
+	//log.Printf("In make call with requestNum %d", requestNum)
 	start := time.Now()
 	if requestNum % 2 == 0 {
 		Requests.Worker.Push("work")
@@ -58,7 +58,7 @@ func RunTest() {
 		select {
 		case c := <-Requests.RequestChan:
 			received++
-			log.Printf("Received response for message %d", c)
+			//log.Printf("Received response for message %d", c)
 			if (sent < Requests.NumMessages) {
 				curr := sent
 				go makeCall(curr)
@@ -93,8 +93,8 @@ func main() {
     if err != nil {
     	log.Fatalf("Failed to create file")
     }
-    fmt.Printf("Num Messages: %d, Window Size: %d\n",
-    	Requests.NumMessages, Requests.WindowSize)
+    // fmt.Printf("Num Messages: %d, Window Size: %d\n",
+    //	Requests.NumMessages, Requests.WindowSize)
 
     Requests.Worker, err = worker.NewWorker(strings.Fields(*s), *id, *uid)
     if (err != nil) {
@@ -108,7 +108,7 @@ func main() {
     		i, 
     		v.StartTime.Sub(start).Nanoseconds()/1000, 
     		v.Duration.Nanoseconds()/1000))
-    	log.Printf("Request %d: Started at: %v, Duration: %v", i, v.StartTime.Sub(start), v.Duration)
+    	//log.Printf("Request %d: Started at: %v, Duration: %v", i, v.StartTime.Sub(start), v.Duration)
     }
 
 
