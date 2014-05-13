@@ -3,10 +3,11 @@ package vr
 import (
 	"encoding/binary"
 	"fmt"
+	"github.com/mgentili/goPhat/phatlog"
 	"os"
 )
 
-func (r *Replica) LoadSnapshotFromDisk() {
+func (r *Replica) SnapshotDiskData() (snapshot []byte) {
 	f, err := os.Open(r.SnapshotFile)
 	defer func() {
 		if err != nil {
@@ -29,13 +30,18 @@ func (r *Replica) LoadSnapshotFromDisk() {
 	}
 	assert(int64(n) == fileinfo.Size())
 
-	snapIndex := binary.LittleEndian.Uint64(buf[:8])
-
-	r.LoadSnapshot(buf[8:], uint(snapIndex))
+	return buf
 }
 
-func (r *Replica) LoadSnapshot(data []byte, snapIndex uint) {
-	r.LoadSnapshotFunc(r.Context, data)
+func (r *Replica) LoadSnapshotFromDisk() {
+	buf := r.SnapshotDiskData()
+	r.LoadSnapshot(buf)
+}
+
+func (r *Replica) LoadSnapshot(data []byte) {
+	snapIndex := uint(binary.LittleEndian.Uint64(data[:8]))
+	// call user code
+	r.LoadSnapshotFunc(r.Context, data[8:])
 	r.SnapshotIndex = snapIndex
 	r.Rstate.OpNumber = snapIndex
 	r.Rstate.CommitNumber = snapIndex
@@ -85,4 +91,18 @@ func (r *Replica) TakeSnapshot() {
 	}
 	// TODO: compaction
 	r.SnapshotIndex = snapIndex
+}
+
+// returns either just the log suffix or a snapshot and log suffix that are required to
+// recover to current state from the given op number
+func (r *Replica) RecoverInfoFromOpNumber(op uint) (log *phatlog.Log, snapshot []byte) {
+	if !r.Phatlog.HasEntry(op) {
+		// need to send snapshot too
+		snapshot = r.SnapshotDiskData()
+        // and whatever log we do have
+        log = r.Phatlog
+	} else {
+        log = r.Phatlog.Suffix(op)
+    }
+	return
 }

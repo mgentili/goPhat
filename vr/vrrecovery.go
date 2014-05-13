@@ -16,12 +16,15 @@ type RecoveryState struct {
 type RecoveryArgs struct {
 	ReplicaNumber uint
 	Nonce         uint
+	// index of our snapshot (aka only need to send after this point)
+	SnapshotIndex uint
 }
 
 type RecoveryResponse struct {
 	View          uint
 	Nonce         uint
 	Log           *phatlog.Log
+	Snapshot      []byte
 	OpNumber      uint
 	CommitNumber  uint
 	ReplicaNumber uint
@@ -31,7 +34,6 @@ type RecoveryResponse struct {
 func (r *Replica) resetRcvstate() {
 	r.Rcvstate = RecoveryState{}
 	r.Rcvstate.RecoveryResponseMsgs = make([]RecoveryResponse, NREPLICAS)
-
 }
 
 //A replica notices that it needs a recovery
@@ -50,7 +52,7 @@ func (r *Replica) PrepareRecovery() {
 
 	//fill RPC args
 	r.Rcvstate.Nonce = uint(rand.Uint32())
-	args := RecoveryArgs{r.Rstate.ReplicaNumber, r.Rcvstate.Nonce}
+	args := RecoveryArgs{r.Rstate.ReplicaNumber, r.Rcvstate.Nonce, r.SnapshotIndex}
 
 	//send Recovery RPCs
 	go r.sendAndRecv(NREPLICAS-1, "RPCReplica.Recovery", args,
@@ -64,25 +66,36 @@ func (t *RPCReplica) Recovery(args *RecoveryArgs, reply *RecoveryResponse) error
 
 	r.Debug(STATUS, "Got Recovery RPC")
 
-	*reply = RecoveryResponse{r.Rstate.View, args.Nonce, r.Phatlog, r.Rstate.OpNumber,
+	var log *phatlog.Log = nil
+	var snapshot []byte = nil
+	if r.IsMaster() {
+		log, snapshot = r.RecoverInfoFromOpNumber(args.SnapshotIndex)
+	}
+	*reply = RecoveryResponse{r.Rstate.View, args.Nonce, log, snapshot, r.Rstate.OpNumber,
 		r.Rstate.CommitNumber, r.Rstate.ReplicaNumber, r.Rstate.Status == Normal}
-
-	//TODO:only send log and everything else if master
 
 	return nil
 }
 
-func (r *Replica) handleRecoveryResponse(reply *RecoveryResponse) bool {
+func (r *Replica) handleRecoveryResponse(reply *RecoveryResponse) (done bool) {
 	r.Debug(STATUS, "Got recoveryresponse from replica %d", reply.ReplicaNumber)
+
+	done = false
+
+	defer func() {
+		if done {
+			r.resetRcvstate()
+		}
+	}()
 
 	//already recieved a recovery response message from this replica
 	if ((1 << reply.ReplicaNumber) & r.Rcvstate.RecoveryResponseReplies) != 0 {
-		return false
+		return
 	}
 
 	//check nonce
 	if r.Rcvstate.Nonce != reply.Nonce {
-		return false
+		return
 	}
 
 	r.Rcvstate.RecoveryResponseReplies |= 1 << reply.ReplicaNumber
@@ -90,11 +103,25 @@ func (r *Replica) handleRecoveryResponse(reply *RecoveryResponse) bool {
 		r.Rcvstate.RecoveryResponses++
 	}
 
+	// TODO: how does this work with snapshots?
 	if reply.Log.MaxIndex == 0 {
 		r.Rcvstate.EmptyLogs++
 	}
 
 	r.Rcvstate.RecoveryResponseMsgs[reply.ReplicaNumber] = *reply
+
+	// if majority of replicas respond with empty logs, then we've just started
+	// so we go into view change
+	if r.Rcvstate.EmptyLogs >= F+1 {
+		r.PrepareViewChange()
+		r.Debug(STATUS, "Received quorum of empty logs, going to Normal")
+		done = true
+		return
+	}
+
+	if !reply.Normal {
+		return
+	}
 
 	// update our view number
 	if reply.View > r.Rstate.View {
@@ -104,30 +131,21 @@ func (r *Replica) handleRecoveryResponse(reply *RecoveryResponse) bool {
 	// this could be outdated, but it WON'T be outdated once we have F+1 responses
 	var masterId uint = r.Rstate.View % NREPLICAS
 
-	var ret bool = false
-
-	// if majority of replicas respond with empty logs, then we've just started
-	// so we go into view change
-	if r.Rcvstate.EmptyLogs >= F+1 {
-		r.PrepareViewChange()
-		ret = true
-		r.Debug(STATUS, "Received quorum of empty logs, going to Normal")
-	}
 	//We have recived enough Recovery messages and have recieved from master
 	if r.Rcvstate.RecoveryResponses >= F+1 && ((1<<masterId)&r.Rcvstate.RecoveryResponseReplies) != 0 {
+		assert(r.Rcvstate.RecoveryResponseMsgs[masterId].CommitNumber >= r.SnapshotIndex)
 		r.Rstate.View = r.Rcvstate.RecoveryResponseMsgs[masterId].View
 		r.Phatlog = r.Rcvstate.RecoveryResponseMsgs[masterId].Log
+		if r.Phatlog == nil {
+			r.Phatlog = phatlog.EmptyLog()
+		}
 		r.Rstate.OpNumber = r.Rcvstate.RecoveryResponseMsgs[masterId].OpNumber
 		r.doCommit(r.Rcvstate.RecoveryResponseMsgs[masterId].CommitNumber)
 		assert(r.Rstate.CommitNumber == r.Rcvstate.RecoveryResponseMsgs[masterId].CommitNumber)
 		r.Rstate.Status = Normal
-		ret = true
+		done = true
 		r.Debug(STATUS, "Done with Recovery!")
 	}
 
-	if ret {
-		r.resetRcvstate()
-	}
-
-	return ret
+	return
 }

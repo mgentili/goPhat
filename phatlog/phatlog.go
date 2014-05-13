@@ -17,7 +17,8 @@ type Command struct {
 //is map the best choice here?
 type Log struct {
 	Commits  map[uint]interface{}
-	MaxIndex uint //highest seen index
+	MaxIndex uint // highest seen index
+    MinIndex uint // lower bound of the log. Log contains entries i, MinIndex < i <= MaxIndex
 }
 
 //no builtin int max function??
@@ -41,6 +42,19 @@ func (l *Log) Add(index uint, command interface{}) {
 	l.Commits[index] = command
 	l.MaxIndex = Max(l.MaxIndex, index)
 
+}
+
+func (l *Log) Suffix(newBegin uint) *Log {
+    newLog := EmptyLog()
+    newLog.MinIndex = newBegin
+    for i := newBegin+1; i < l.MaxIndex; i++ {
+        newLog.Add(i, l.GetCommand(i))
+    }
+    return newLog
+}
+
+func (l *Log) HasEntry(index uint) bool {
+    return index > l.MinIndex
 }
 
 func (l *Log) GetCommand(index uint) interface{} {
