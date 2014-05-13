@@ -44,6 +44,7 @@ func main() {
 	rawServerPaths := flag.String("servers", "", "Path to servers, space delimited")
 	initPosition := flag.Int("pos", -1, "Position in server list (if blank, attempts to use IP to guess)")
 	local := flag.Bool("local", false, "States the test is running on a single machine")
+	useVR := flag.Bool("vr", true, "True for using VR, False for using disk")
 	flag.Parse()
 	if *local {
 		*rawServerPaths = "127.0.0.1:9000 127.0.0.1:9001 127.0.0.1:9002 127.0.0.1:9003 127.0.0.1:9004"
@@ -69,17 +70,18 @@ func main() {
 	if position == -1 {
 		log.Fatal("Couldn't find my position in the servers array")
 	}
-
 	// Start VR and the Queue RPC server
+
 	fmt.Println("Starting VR server at " + serverPaths[position] + "...")
 	newReplica := vr.RunAsReplica(uint(position), serverPaths)
+	
 	port := 1337
 	if *local {
 		port += position
 	}
 	rpcServerPath := ip.String() + ":" + strconv.FormatInt(int64(port), 10)
 	fmt.Println("Starting RPC server at " + rpcServerPath + "...")
-	queueRPC.StartServer(rpcServerPath, newReplica)
+	queueRPC.StartServer(rpcServerPath, newReplica, *useVR)
 
 	// Survive indefinitely
 	t := time.NewTicker(1 * time.Minute)

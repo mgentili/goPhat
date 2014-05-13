@@ -4,8 +4,10 @@ import (
 	"encoding/gob"
 	"errors"
 	"fmt"
+//	"log"
 	"github.com/mgentili/goPhat/level_log"
 	queue "github.com/mgentili/goPhat/phatqueue"
+	"github.com/mgentili/goPhat/queuedisk"
 	"github.com/mgentili/goPhat/vr"
 	"net"
 	"net/rpc"
@@ -15,12 +17,12 @@ import (
 const DEBUG = 0
 
 var server_log *level_log.Logger
-var paxos = true
 
 type Server struct {
 	ReplicaServer *vr.Replica
 	InputChan     chan queue.QCommandWithChannel
 	ClientTable   map[string]ClientTableEntry
+	UseVR bool
 }
 
 type ClientTableEntry struct {
@@ -95,7 +97,11 @@ func (s *Server) debug(level int, format string, args ...interface{}) {
 func (s *Server) startQueue() {
 	input := make(chan queue.QCommandWithChannel, 1000)
 	s.InputChan = input
-	go queue.QueueServer(input)
+	if (s.UseVR) {	
+		go queue.QueueServer(input)	
+	} else {
+		go queuedisk.QueueServer(input)
+	}
 }
 
 func SetupLog() {
@@ -108,21 +114,28 @@ func SetupLog() {
 
 // startServer starts a TCP server that accepts client requests at the given port
 // and has information about the replica server
-func StartServer(address string, replica *vr.Replica) (*rpc.Server, error) {
+func StartServer(address string, replica *vr.Replica, useVR bool) (*rpc.Server, error) {
 	SetupLog()
+
+	var err error
+	
+	/*defer func() {
+		log.Printf("StartServer errored with %v", err)
+	}()*/
+
 	listener, err := net.Listen("tcp", address)
 	if err != nil {
 		return nil, err
 	}
-
 	serve := new(Server)
 	serve.ReplicaServer = replica
 	serve.ClientTable = make(map[string]ClientTableEntry)
+	serve.UseVR = useVR
 	serve.startQueue()
+
 	replica.Context = serve
 	replica.SnapshotFunc = SnapshotFunc
     replica.LoadSnapshotFunc = LoadSnapshotFunc
-
 	newServer := rpc.NewServer()
 	err = newServer.Register(serve)
 	if err != nil {
@@ -210,14 +223,17 @@ func (s *Server) Send(args *ClientCommand, reply *queue.QResponse) error {
 	*/
 
 	argsWithChannel := queue.QCommandWithChannel{args.Command, make(chan *queue.QResponse, 1)}
-
-	if paxos {
+	
+	if s.UseVR {
 		s.ReplicaServer.RunVR(CommandFunctor{argsWithChannel})
-	} else {
+	} else { // in this case, we're using disk 
 		s.InputChan <- argsWithChannel
 	}
+
 	result := <-argsWithChannel.Done
 	*reply = *result
+
+	
 	// place the response entry into the client table
 	// s.ClientTable[args.Uid] = ClientTableEntry{s.ClientTable[args.Uid].SeqNumber, reply}
 
