@@ -1,5 +1,7 @@
 from __future__ import with_statement
 from fabric.api import *
+from fabric.contrib.files import exists
+import time
 
 # Define the hosts to run commands on via the command line:
 # fab -H host1,host2 mytask
@@ -20,8 +22,8 @@ env.use_ssh_config = True
 # }
 
 env.roledefs = {
-		'servers': ['54.187.174.203','54.187.203.81','54.187.208.177'],
-    'client': ['54.187.208.177']
+		'servers': ['54.187.234.238','54.187.237.77','54.187.237.3'],
+    'client': ['54.186.130.98']
 }
 
 # server_private = '172.31.25.80:9000 172.31.25.82:9000 172.31.25.79:9000'
@@ -55,15 +57,46 @@ def ping():
 
 @parallel
 @roles('servers')
-def start_server():
+def start_server(useVR = "true"):
 	server_vr = " ".join(["{}:{}".format(i,vrport) for i in server_private])
-	run('qserver --servers "{}" --vr false'.format(server_vr))
+	cmd = 'qserver --servers "{}" --vr {}'.format(server_vr, useVR)
+	#run(cmd)
+	run("nohup {} >& /dev/null < /dev/null &".format(cmd), pty=False)
+	#run_bg('qserver --servers "{}" --vr {}'.format(server_vr, useVR))
 
 @roles('client')
-def start_client(num_messages = 100, window_size = 1):
-	output_file = "{}messages_{}window.csv".format(num_messages, window_size)
+def start_client(num_messages = 1000, window_size = 1, output = "test.csv"):
 	server_rpcs = " ".join(["{}:{}".format(i,rpcport) for i in server_private])
-	run('windowed --num_messages {} --window_size {} --servers "{}" --file {}'.format(num_messages, window_size,server_rpcs,output_file))
+	run('windowed --num_messages {} --window_size {} --servers "{}" --file {}'.format(num_messages, window_size,server_rpcs,output))
+
+def run_benchmark(useVR = "true", num_messages = 1000, window_size = 10):
+	#execute(setup)
+	execute(start_server,useVR)
+	time.sleep(3)
+	output_file = "{}messages_{}window_{}vr.csv".format(num_messages, window_size, useVR)
+	run("rm -f {}".format(output_file))
+	execute(start_client, num_messages, window_size, output_file)
 	get(output_file, 'tmp/')
+	execute(shutdown)
 
+def run_bg(cmd, before=None, sockname="dtach", use_sudo=False):
+    """Run a command in the background using dtach
 
+    :param cmd: The command to run
+    :param output_file: The file to send all of the output to.
+    :param before: The command to run before the dtach. E.g. exporting
+                   environment variable
+    :param sockname: The socket name to use for the temp file
+    :param use_sudo: Whether or not to use sudo
+    """
+    if not exists("/usr/bin/dtach"):
+        sudo("yum install dtach -y")
+    if before:
+        cmd = "{}; dtach -n `mktemp -u /tmp/{}.XXXX` {}".format(
+            before, sockname, cmd)
+    else:
+        cmd = "dtach -n `mktemp -u /tmp/{}.XXXX` {}".format(sockname, cmd)
+    if use_sudo:
+        return sudo(cmd)
+    else:
+        return run(cmd) 

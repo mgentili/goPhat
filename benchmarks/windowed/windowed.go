@@ -77,7 +77,7 @@ func main() {
     s := flag.String("servers", "", "Location of server to connect to")
     id := flag.Uint("id", 0, "Id of server to connect to")
     uid := flag.String("uid", "c1", "Unique id of client")
-    output := flag.String("file", "", "File to log output")
+    output := flag.String("file", "test2.csv", "File to log output")
     flag.Parse()
 
     Requests.NumMessages = *nM
@@ -104,8 +104,13 @@ func main() {
 
     start := Requests.RequestTimes[0].StartTime
     for i, v := range(Requests.RequestTimes) {
-    	dataptr.WriteString(fmt.Sprintf("%d, %v, %v\n", i, v.StartTime.Sub(start), v.Duration))
+    	dataptr.WriteString(fmt.Sprintf("%d, %v, %v\n", 
+    		i, 
+    		v.StartTime.Sub(start).Nanoseconds()/1000, 
+    		v.Duration.Nanoseconds()/1000))
     	log.Printf("Request %d: Started at: %v, Duration: %v", i, v.StartTime.Sub(start), v.Duration)
     }
+
+
 
 }
