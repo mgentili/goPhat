@@ -77,7 +77,7 @@ func main() {
 	// Start VR and the Queue RPC server
 
 	serverPaths[position] = "0.0.0.0:9000"
-	fmt.Println("Starting VR server at " + serverPaths[position] + "...")
+	fmt.Println("Starting dsffds VR server at " + serverPaths[position] + "...")
 	newReplica := vr.RunAsReplica(uint(position), serverPaths)
 	
 	port := 1337
