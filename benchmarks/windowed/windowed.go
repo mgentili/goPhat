@@ -10,6 +10,7 @@ import (
     "strings"
     "time"
     "github.com/mgentili/goPhat/worker"
+    "net"
 )
 
 type Times struct {
@@ -70,8 +71,36 @@ func RunTest() {
 		}
 	}
 }
+func test() {
+    name, err := os.Hostname()
+    if err != nil {
+
+        fmt.Printf("Oops: %v\n", err)
+
+        return
+
+    }
+
+    addrs, err := net.LookupIP(name)
+
+    if err != nil {
+
+        fmt.Printf("Oops: %v\n", err)
+
+        return
+
+    }
+
+    for _, a := range addrs {
+
+        fmt.Println(a)
+
+    }
+
+}
 
 func main() {
+	test()
     nM := flag.Int("num_messages", 10, "number of messages a client should send")
     wS := flag.Int("window_size", 1, "window size (# of outstanding messages)")
     s := flag.String("servers", "", "Location of server to connect to")
@@ -98,7 +127,7 @@ func main() {
 
     Requests.Worker, err = worker.NewWorker(strings.Fields(*s), *id, *uid)
     if (err != nil) {
-    	log.Printf("Failed to create worker with error %v", err)
+    	log.Fatalf("Failed to create worker with error %v", err)
     }
     RunTest()
 
