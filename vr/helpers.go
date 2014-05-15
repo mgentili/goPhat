@@ -113,6 +113,7 @@ func (r *Replica) Shutdown() {
 }
 
 func (r *Replica) ListenerInit() error {
+	r.Debug(ERROR, "%v", r.Config[r.Rstate.ReplicaNumber])
 	ln, err := net.Listen("tcp", r.Config[r.Rstate.ReplicaNumber])
 	if err != nil {
 		r.Debug(ERROR, "Couldn't start a listener: %v", err)
