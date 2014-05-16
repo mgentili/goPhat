@@ -5,15 +5,29 @@ import sys
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-#X = [float(x) for x in sys.stdin.readlines()]
-X = sorted([np.random.normal(200, 100) for x in xrange(0, 1000)])
-X = [y for y in X if y > 0]
+args = sys.argv[1:]
+labels = args[0].split(', ')
+files = args[1:]
+data = [[map(float, x.split(', ')) for x in open(fn).readlines()] for fn in files]
 
-fig = plt.figure(figsize=(12, 6))
-Y = []
-for i, val in enumerate(X):
-    Y.append(i / len(X))
-plt.plot(X, Y)
+fig, axes = plt.subplots(1, 1, sharex=True, sharey=True, figsize=(10, 6))
+color_cycle = axes._get_lines.color_cycle
+biggestX = 0
+###
+for label, points in zip(labels, data):
+    start = [x for _, x, y in points]
+    latency = sorted([y for _, x, y in points])
+    print label, latency[-50:]
+    X = latency
+    biggestX = max(biggestX, max(latency))
+    Y = []
+    for i, val in enumerate(X):
+        Y.append(i / len(X))
+    plt.plot(X, Y, label=label, color=next(color_cycle), alpha=0.5)
+###
 plt.xlabel('Latency')
 plt.ylabel('Density')
+plt.xlim((0, biggestX))
+plt.ylim((0, 1))
+plt.legend()
 plt.show()
